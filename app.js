@@ -10,9 +10,11 @@ const elements = {
   newNoteBtn: document.getElementById("new-note-btn"),
   deleteNoteBtn: document.getElementById("delete-note-btn"),
   openSettingsBtn: document.getElementById("open-settings-btn"),
+  openSettingsOverlayBtn: document.getElementById("open-settings-overlay-btn"),
   closeSettingsBtn: document.getElementById("close-settings-btn"),
   settingsView: document.getElementById("settings-view"),
   settingsBackdrop: document.getElementById("settings-backdrop"),
+  lockedOverlay: document.getElementById("locked-overlay"),
   searchInput: document.getElementById("search-input"),
   noteList: document.getElementById("note-list"),
   noteTitleInput: document.getElementById("note-title-input"),
@@ -311,10 +313,27 @@ function renderCryptoState() {
 }
 
 function render() {
-  renderNoteList();
-  renderEditor();
+  const locked = !isUnlocked();
+
+  document.body.classList.toggle("app-locked", locked);
+  elements.lockedOverlay.classList.toggle("hidden", !locked);
+  elements.searchInput.disabled = locked;
+  elements.noteTitleInput.disabled = locked;
+  elements.noteContentInput.disabled = locked;
+  elements.newNoteBtn.disabled = locked;
+
+  if (locked) {
+    elements.noteList.innerHTML = "";
+    elements.noteTitleInput.value = "";
+    elements.noteContentInput.value = "";
+    elements.previewOutput.innerHTML = "<p class=\"muted\">Locked.</p>";
+  } else {
+    renderNoteList();
+    renderEditor();
+  }
+
   renderCryptoState();
-  elements.deleteNoteBtn.disabled = state.notes.length <= 1;
+  elements.deleteNoteBtn.disabled = locked || state.notes.length <= 1;
 }
 
 function openSettings() {
@@ -336,7 +355,7 @@ function lockCryptoSession(reasonText = "Locked") {
   state.crypto.statusText = reasonText;
   elements.passphraseInput.value = "";
   clearIdleAutoLockTimer();
-  renderCryptoState();
+  render();
 }
 
 async function unlockCryptoSession() {
@@ -375,11 +394,14 @@ async function unlockCryptoSession() {
     state.crypto.keyParams = null;
   } finally {
     state.crypto.unlocking = false;
-    renderCryptoState();
+    render();
   }
 }
 
 const saveEditorChanges = debounce(() => {
+  if (!isUnlocked()) {
+    return;
+  }
   const note = getSelectedNote();
   if (!note) {
     return;
@@ -393,14 +415,24 @@ const saveEditorChanges = debounce(() => {
 
 function wireEvents() {
   elements.newNoteBtn.addEventListener("click", () => {
+    if (!isUnlocked()) {
+      return;
+    }
     createNote();
   });
 
   elements.deleteNoteBtn.addEventListener("click", () => {
+    if (!isUnlocked()) {
+      return;
+    }
     deleteSelectedNote();
   });
 
   elements.openSettingsBtn.addEventListener("click", () => {
+    openSettings();
+  });
+
+  elements.openSettingsOverlayBtn.addEventListener("click", () => {
     openSettings();
   });
 
@@ -413,11 +445,17 @@ function wireEvents() {
   });
 
   elements.searchInput.addEventListener("input", (event) => {
+    if (!isUnlocked()) {
+      return;
+    }
     state.searchQuery = event.target.value;
     renderNoteList();
   });
 
   elements.noteList.addEventListener("click", (event) => {
+    if (!isUnlocked()) {
+      return;
+    }
     const button = event.target.closest("button[data-note-id]");
     if (!button) {
       return;
@@ -427,10 +465,16 @@ function wireEvents() {
   });
 
   elements.noteTitleInput.addEventListener("input", () => {
+    if (!isUnlocked()) {
+      return;
+    }
     saveEditorChanges();
   });
 
   elements.noteContentInput.addEventListener("input", () => {
+    if (!isUnlocked()) {
+      return;
+    }
     const note = getSelectedNote();
     if (!note) {
       return;
