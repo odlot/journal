@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    />
+    <title>Journal</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Journal</h1>
+      <div class="actions">
+        <button id="new-note-btn" type="button">New Note</button>
+        <button id="delete-note-btn" type="button">Delete</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel notes-panel">
+        <label class="field-label" for="search-input">Search</label>
+        <input id="search-input" type="search" placeholder="Find notes..." />
+        <ul id="note-list" class="note-list"></ul>
+      </aside>
+
+      <section class="panel editor-panel">
+        <label class="field-label" for="note-title-input">Title</label>
+        <input id="note-title-input" type="text" placeholder="Untitled" />
+        <label class="field-label" for="note-content-input">Markdown</label>
+        <textarea
+          id="note-content-input"
+          placeholder="# Start writing..."
+          spellcheck="false"
+        ></textarea>
+      </section>
+
+      <section class="panel preview-panel">
+        <h2>Preview</h2>
+        <article id="preview-output" class="markdown-preview"></article>
+      </section>
+
+      <aside class="panel settings-panel">
+        <h2>Privacy & Sync</h2>
+        <p class="muted">Local-first MVP. Encryption + cloud sync are next.</p>
+        <label class="field-label" for="passphrase-input"
+          >Passphrase (session only)</label
+        >
+        <input
+          id="passphrase-input"
+          type="password"
+          placeholder="Not wired yet"
+          autocomplete="off"
+        />
+        <label class="field-label" for="sync-endpoint-input"
+          >Sync endpoint</label
+        >
+        <input
+          id="sync-endpoint-input"
+          type="url"
+          placeholder="https://example.com/api/sync"
+          disabled
+        />
+        <button id="sync-now-btn" type="button" disabled>Sync Now</button>
+      </aside>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
