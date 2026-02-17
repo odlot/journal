@@ -1,22 +1,42 @@
 "use strict";
 
 const STORAGE_KEY = "journal.notes.v1";
+const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
 const AUTOSAVE_DELAY_MS = 250;
+const DEFAULT_AUTO_LOCK_MS = 300000;
+const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
 
 const elements = {
   newNoteBtn: document.getElementById("new-note-btn"),
   deleteNoteBtn: document.getElementById("delete-note-btn"),
+  openSettingsBtn: document.getElementById("open-settings-btn"),
+  closeSettingsBtn: document.getElementById("close-settings-btn"),
+  settingsView: document.getElementById("settings-view"),
+  settingsBackdrop: document.getElementById("settings-backdrop"),
   searchInput: document.getElementById("search-input"),
   noteList: document.getElementById("note-list"),
   noteTitleInput: document.getElementById("note-title-input"),
   noteContentInput: document.getElementById("note-content-input"),
   previewOutput: document.getElementById("preview-output"),
+  passphraseInput: document.getElementById("passphrase-input"),
+  unlockBtn: document.getElementById("unlock-btn"),
+  lockBtn: document.getElementById("lock-btn"),
+  cryptoStatus: document.getElementById("crypto-status"),
+  autoLockSelect: document.getElementById("auto-lock-select"),
 };
 
 const state = {
   notes: [],
   selectedId: null,
   searchQuery: "",
+  crypto: {
+    key: null,
+    keyParams: null,
+    statusText: "Locked",
+    unlocking: false,
+    autoLockMs: DEFAULT_AUTO_LOCK_MS,
+    idleTimerId: null,
+  },
 };
 
 function uid() {
@@ -41,6 +61,20 @@ function safeJsonParse(raw, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeAutoLockMs(value) {
+  const candidate = Number(value);
+  return ALLOWED_AUTO_LOCK_MS.has(candidate) ? candidate : DEFAULT_AUTO_LOCK_MS;
+}
+
+function loadAutoLockPreference() {
+  const raw = localStorage.getItem(AUTO_LOCK_KEY);
+  state.crypto.autoLockMs = normalizeAutoLockMs(raw);
+}
+
+function persistAutoLockPreference() {
+  localStorage.setItem(AUTO_LOCK_KEY, String(state.crypto.autoLockMs));
 }
 
 function loadNotes() {
@@ -239,10 +273,110 @@ function renderEditor() {
   elements.previewOutput.innerHTML = renderMarkdown(note.content);
 }
 
+function isUnlocked() {
+  return Boolean(state.crypto.key);
+}
+
+function clearIdleAutoLockTimer() {
+  if (state.crypto.idleTimerId !== null) {
+    clearTimeout(state.crypto.idleTimerId);
+    state.crypto.idleTimerId = null;
+  }
+}
+
+function scheduleIdleAutoLock() {
+  clearIdleAutoLockTimer();
+  if (!isUnlocked() || state.crypto.autoLockMs <= 0) {
+    return;
+  }
+  state.crypto.idleTimerId = setTimeout(() => {
+    lockCryptoSession("Locked (idle timeout)");
+  }, state.crypto.autoLockMs);
+}
+
+function touchCryptoActivity() {
+  if (!isUnlocked()) {
+    return;
+  }
+  scheduleIdleAutoLock();
+}
+
+function renderCryptoState() {
+  elements.cryptoStatus.textContent = state.crypto.statusText;
+  elements.cryptoStatus.classList.toggle("unlocked", isUnlocked());
+  elements.cryptoStatus.classList.toggle("locked", !isUnlocked());
+  elements.unlockBtn.disabled = state.crypto.unlocking || isUnlocked();
+  elements.lockBtn.disabled = !isUnlocked();
+  elements.autoLockSelect.value = String(state.crypto.autoLockMs);
+}
+
 function render() {
   renderNoteList();
   renderEditor();
+  renderCryptoState();
   elements.deleteNoteBtn.disabled = state.notes.length <= 1;
+}
+
+function openSettings() {
+  elements.settingsView.classList.remove("hidden");
+  elements.settingsView.setAttribute("aria-hidden", "false");
+  elements.passphraseInput.focus();
+}
+
+function closeSettings() {
+  elements.settingsView.classList.add("hidden");
+  elements.settingsView.setAttribute("aria-hidden", "true");
+  elements.openSettingsBtn.focus();
+}
+
+function lockCryptoSession(reasonText = "Locked") {
+  state.crypto.key = null;
+  state.crypto.keyParams = null;
+  state.crypto.unlocking = false;
+  state.crypto.statusText = reasonText;
+  elements.passphraseInput.value = "";
+  clearIdleAutoLockTimer();
+  renderCryptoState();
+}
+
+async function unlockCryptoSession() {
+  if (state.crypto.unlocking || isUnlocked()) {
+    return;
+  }
+
+  const passphrase = elements.passphraseInput.value;
+  if (typeof passphrase !== "string" || passphrase.length < 8) {
+    state.crypto.statusText = "Use at least 8 characters";
+    renderCryptoState();
+    return;
+  }
+
+  if (!window.JournalCrypto) {
+    state.crypto.statusText = "Crypto module unavailable";
+    renderCryptoState();
+    return;
+  }
+
+  state.crypto.unlocking = true;
+  state.crypto.statusText = "Unlocking...";
+  renderCryptoState();
+
+  try {
+    const result = await window.JournalCrypto.deriveSessionKey(passphrase);
+    state.crypto.key = result.key;
+    state.crypto.keyParams = result.params;
+    state.crypto.statusText = "Unlocked";
+    elements.passphraseInput.value = "";
+    scheduleIdleAutoLock();
+  } catch (error) {
+    console.error(error);
+    state.crypto.statusText = "Unlock failed";
+    state.crypto.key = null;
+    state.crypto.keyParams = null;
+  } finally {
+    state.crypto.unlocking = false;
+    renderCryptoState();
+  }
 }
 
 const saveEditorChanges = debounce(() => {
@@ -264,6 +398,18 @@ function wireEvents() {
 
   elements.deleteNoteBtn.addEventListener("click", () => {
     deleteSelectedNote();
+  });
+
+  elements.openSettingsBtn.addEventListener("click", () => {
+    openSettings();
+  });
+
+  elements.closeSettingsBtn.addEventListener("click", () => {
+    closeSettings();
+  });
+
+  elements.settingsBackdrop.addEventListener("click", () => {
+    closeSettings();
   });
 
   elements.searchInput.addEventListener("input", (event) => {
@@ -292,9 +438,49 @@ function wireEvents() {
     elements.previewOutput.innerHTML = renderMarkdown(elements.noteContentInput.value);
     saveEditorChanges();
   });
+
+  elements.unlockBtn.addEventListener("click", () => {
+    unlockCryptoSession();
+  });
+
+  elements.lockBtn.addEventListener("click", () => {
+    lockCryptoSession("Locked");
+  });
+
+  elements.passphraseInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      unlockCryptoSession();
+    }
+  });
+
+  elements.autoLockSelect.addEventListener("change", (event) => {
+    state.crypto.autoLockMs = normalizeAutoLockMs(event.target.value);
+    persistAutoLockPreference();
+    if (isUnlocked()) {
+      scheduleIdleAutoLock();
+    }
+    state.crypto.statusText = isUnlocked() ? "Unlocked" : "Locked";
+    renderCryptoState();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !elements.settingsView.classList.contains("hidden")) {
+      closeSettings();
+    }
+    touchCryptoActivity();
+  });
+
+  document.addEventListener("pointerdown", () => {
+    touchCryptoActivity();
+  });
+
+  document.addEventListener("input", () => {
+    touchCryptoActivity();
+  });
 }
 
 function init() {
+  loadAutoLockPreference();
   loadNotes();
   wireEvents();
   render();

@@ -9,7 +9,8 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - Note list with search, create, delete
 - Debounced autosave
 - Security-minded baseline (CSP + escaped markdown rendering)
-- Placeholder panel for upcoming E2E encryption and cloud sync
+- Settings modal for encryption and sync configuration
+- In-memory encryption session unlock/lock with idle auto-lock timer
 
 ## Run
 
