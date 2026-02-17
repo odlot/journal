@@ -6,11 +6,15 @@ const AUTOSAVE_DELAY_MS = 250;
 const elements = {
   newNoteBtn: document.getElementById("new-note-btn"),
   deleteNoteBtn: document.getElementById("delete-note-btn"),
+  openSettingsBtn: document.getElementById("open-settings-btn"),
   searchInput: document.getElementById("search-input"),
   noteList: document.getElementById("note-list"),
   noteTitleInput: document.getElementById("note-title-input"),
   noteContentInput: document.getElementById("note-content-input"),
   previewOutput: document.getElementById("preview-output"),
+  settingsView: document.getElementById("settings-view"),
+  settingsBackdrop: document.getElementById("settings-backdrop"),
+  closeSettingsBtn: document.getElementById("close-settings-btn"),
 };
 
 const state = {
@@ -245,6 +249,18 @@ function render() {
   elements.deleteNoteBtn.disabled = state.notes.length <= 1;
 }
 
+function openSettings() {
+  elements.settingsView.classList.remove("hidden");
+  elements.settingsView.setAttribute("aria-hidden", "false");
+  elements.closeSettingsBtn.focus();
+}
+
+function closeSettings() {
+  elements.settingsView.classList.add("hidden");
+  elements.settingsView.setAttribute("aria-hidden", "true");
+  elements.openSettingsBtn.focus();
+}
+
 const saveEditorChanges = debounce(() => {
   const note = getSelectedNote();
   if (!note) {
@@ -264,6 +280,18 @@ function wireEvents() {
 
   elements.deleteNoteBtn.addEventListener("click", () => {
     deleteSelectedNote();
+  });
+
+  elements.openSettingsBtn.addEventListener("click", () => {
+    openSettings();
+  });
+
+  elements.closeSettingsBtn.addEventListener("click", () => {
+    closeSettings();
+  });
+
+  elements.settingsBackdrop.addEventListener("click", () => {
+    closeSettings();
   });
 
   elements.searchInput.addEventListener("input", (event) => {
@@ -291,6 +319,16 @@ function wireEvents() {
     }
     elements.previewOutput.innerHTML = renderMarkdown(elements.noteContentInput.value);
     saveEditorChanges();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (elements.settingsView.classList.contains("hidden")) {
+      return;
+    }
+    closeSettings();
   });
 }
 

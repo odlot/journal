@@ -16,6 +16,7 @@
       <div class="actions">
         <button id="new-note-btn" type="button">New Note</button>
         <button id="delete-note-btn" type="button">Delete</button>
+        <button id="open-settings-btn" type="button">Settings</button>
       </div>
     </header>
 
@@ -41,10 +42,23 @@
         <h2>Preview</h2>
         <article id="preview-output" class="markdown-preview"></article>
       </section>
+    </main>
 
-      <aside class="panel settings-panel">
-        <h2>Privacy & Sync</h2>
-        <p class="muted">Local-first MVP. Encryption + cloud sync are next.</p>
+    <div id="settings-view" class="settings-view hidden" aria-hidden="true">
+      <div id="settings-backdrop" class="settings-backdrop"></div>
+      <section
+        class="settings-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
+        <div class="settings-header">
+          <h2 id="settings-title">Settings</h2>
+          <button id="close-settings-btn" type="button" aria-label="Close settings">
+            Close
+          </button>
+        </div>
+        <p class="muted">Encryption and cloud sync configuration stays here.</p>
         <label class="field-label" for="passphrase-input"
           >Passphrase (session only)</label
         >
@@ -64,8 +78,8 @@
           disabled
         />
         <button id="sync-now-btn" type="button" disabled>Sync Now</button>
-      </aside>
-    </main>
+      </section>
+    </div>
 
     <script src="app.js"></script>
   </body>
