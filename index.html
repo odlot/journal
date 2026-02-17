@@ -54,23 +54,36 @@
       >
         <div class="settings-header">
           <h2 id="settings-title">Settings</h2>
-          <button id="close-settings-btn" type="button" aria-label="Close settings">
-            Close
-          </button>
+          <button id="close-settings-btn" type="button">Close</button>
         </div>
-        <p class="muted">Encryption and cloud sync configuration stays here.</p>
-        <label class="field-label" for="passphrase-input"
-          >Passphrase (session only)</label
-        >
+
+        <p id="crypto-status" class="status-badge locked">Locked</p>
+        <label class="field-label" for="passphrase-input">Passphrase</label>
         <input
           id="passphrase-input"
           type="password"
-          placeholder="Not wired yet"
+          placeholder="Enter passphrase to unlock"
           autocomplete="off"
         />
-        <label class="field-label" for="sync-endpoint-input"
-          >Sync endpoint</label
-        >
+        <div class="inline-actions">
+          <button id="unlock-btn" type="button">Unlock</button>
+          <button id="lock-btn" type="button" disabled>Lock</button>
+        </div>
+
+        <label class="field-label" for="auto-lock-select">Auto-lock on idle</label>
+        <select id="auto-lock-select">
+          <option value="60000">1 minute</option>
+          <option value="300000" selected>5 minutes</option>
+          <option value="900000">15 minutes</option>
+          <option value="1800000">30 minutes</option>
+          <option value="0">Off</option>
+        </select>
+        <p class="muted">
+          Passphrase is never stored. Derived key stays in memory for this tab only.
+        </p>
+
+        <h2 class="settings-subtitle">Cloud Sync</h2>
+        <label class="field-label" for="sync-endpoint-input">Sync endpoint</label>
         <input
           id="sync-endpoint-input"
           type="url"
@@ -81,6 +94,7 @@
       </section>
     </div>
 
+    <script src="crypto.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

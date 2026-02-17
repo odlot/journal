@@ -53,7 +53,8 @@ h2 {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -100,7 +101,8 @@ button:disabled {
 }
 
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 0.45rem;
@@ -203,6 +205,42 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  margin: 0.65rem 0 0.2rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.status-badge.locked {
+  background: #fce6de;
+  color: #8a2d21;
+}
+
+.status-badge.unlocked {
+  background: #e1f4e8;
+  color: #1f5a40;
+}
+
+#unlock-btn {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: color-mix(in srgb, var(--accent) 75%, black);
+}
+
+.settings-subtitle {
+  margin-top: 1rem;
 }
 
 @media (max-width: 1200px) {

@@ -26,7 +26,10 @@ jobs:
           test -f index.html
           test -f styles.css
           test -f app.js
+          test -f crypto.js
           test -f README.md
 
       - name: Check JavaScript syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check crypto.js
