@@ -1,6 +1,7 @@
 "use strict";
 
-const STORAGE_KEY = "journal.notes.v1";
+const ENCRYPTED_NOTES_KEY = "journal.notes.encrypted.v1";
+const LEGACY_STORAGE_KEY = "journal.notes.v1";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
 const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
@@ -117,38 +118,116 @@ function persistKeyCheckRecord(record) {
   localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(record));
 }
 
-function loadNotes() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  const parsed = safeJsonParse(raw, []);
-  if (Array.isArray(parsed) && parsed.length > 0) {
-    state.notes = parsed
-      .filter((n) => n && typeof n === "object")
-      .map((n) => ({
-        id: String(n.id || uid()),
-        title: String(n.title || ""),
-        content: String(n.content || ""),
-        updatedAt: String(n.updatedAt || nowIso()),
-      }));
-    state.selectedId = state.notes[0].id;
-    return;
-  }
-  createNote();
+function normalizeNote(rawNote) {
+  return {
+    id: String(rawNote.id || uid()),
+    title: String(rawNote.title || ""),
+    content: String(rawNote.content || ""),
+    updatedAt: String(rawNote.updatedAt || nowIso()),
+  };
 }
 
-function persistNotes() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.notes));
+function normalizeNotesArray(rawNotes) {
+  if (!Array.isArray(rawNotes)) {
+    return [];
+  }
+  return rawNotes.filter((n) => n && typeof n === "object").map(normalizeNote);
+}
+
+function isValidEncryptedNotesRecord(record) {
+  return (
+    record &&
+    typeof record === "object" &&
+    record.payload &&
+    typeof record.payload === "object" &&
+    typeof record.payload.ivB64 === "string" &&
+    typeof record.payload.ciphertextB64 === "string"
+  );
+}
+
+function loadEncryptedNotesRecord() {
+  const raw = localStorage.getItem(ENCRYPTED_NOTES_KEY);
+  const parsed = safeJsonParse(raw, null);
+  return isValidEncryptedNotesRecord(parsed) ? parsed : null;
+}
+
+function loadLegacyPlaintextNotes() {
+  const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+  const parsed = safeJsonParse(raw, []);
+  return normalizeNotesArray(parsed);
+}
+
+async function persistNotes() {
+  if (!isUnlocked() || !state.crypto.key || !window.JournalCrypto) {
+    return;
+  }
+  const plaintext = JSON.stringify(state.notes);
+  const payload = await window.JournalCrypto.encryptString(plaintext, state.crypto.key);
+  const record = {
+    version: 1,
+    updatedAt: nowIso(),
+    payload,
+  };
+  localStorage.setItem(ENCRYPTED_NOTES_KEY, JSON.stringify(record));
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+}
+
+function persistNotesSafe() {
+  persistNotes().catch((error) => {
+    console.error(error);
+    state.crypto.statusText = "Save failed";
+    renderCryptoState();
+  });
+}
+
+function resetSessionNotes() {
+  state.notes = [];
+  state.selectedId = null;
+  state.searchQuery = "";
+  elements.searchInput.value = "";
+}
+
+async function loadNotesForActiveSession() {
+  if (!isUnlocked() || !state.crypto.key || !window.JournalCrypto) {
+    return;
+  }
+
+  const encryptedRecord = loadEncryptedNotesRecord();
+  if (encryptedRecord) {
+    let plaintextNotes = "";
+    try {
+      plaintextNotes = await window.JournalCrypto.decryptString(
+        encryptedRecord.payload,
+        state.crypto.key
+      );
+    } catch {
+      throw new Error("Encrypted notes unreadable");
+    }
+    const parsedNotes = safeJsonParse(plaintextNotes, []);
+    if (!Array.isArray(parsedNotes)) {
+      throw new Error("Encrypted notes unreadable");
+    }
+    state.notes = normalizeNotesArray(parsedNotes);
+  } else {
+    const legacyNotes = loadLegacyPlaintextNotes();
+    state.notes = legacyNotes;
+    await persistNotes();
+  }
+
+  if (state.notes.length === 0) {
+    state.notes = [normalizeNote({ title: "Untitled", content: "" })];
+    state.selectedId = state.notes[0].id;
+    await persistNotes();
+  } else if (!state.selectedId || !state.notes.some((note) => note.id === state.selectedId)) {
+    state.selectedId = state.notes[0].id;
+  }
 }
 
 function createNote() {
-  const note = {
-    id: uid(),
-    title: "Untitled",
-    content: "",
-    updatedAt: nowIso(),
-  };
+  const note = normalizeNote({ title: "Untitled", content: "" });
   state.notes.unshift(note);
   state.selectedId = note.id;
-  persistNotes();
+  persistNotesSafe();
   render();
 }
 
@@ -162,7 +241,7 @@ function deleteSelectedNote() {
   }
   state.notes = state.notes.filter((note) => note.id !== state.selectedId);
   state.selectedId = state.notes[0].id;
-  persistNotes();
+  persistNotesSafe();
   render();
 }
 
@@ -366,6 +445,7 @@ function render() {
   elements.lockedOverlayMessage.textContent = needsSetup
     ? "Set a passphrase in Settings to start."
     : "Unlock in Settings to view and edit notes.";
+  elements.searchInput.value = state.searchQuery;
   elements.searchInput.disabled = locked;
   elements.noteTitleInput.disabled = locked;
   elements.noteContentInput.disabled = locked;
@@ -408,6 +488,7 @@ function lockCryptoSession(reasonText = "Locked") {
   elements.passphraseInput.value = "";
   elements.passphraseConfirmInput.value = "";
   clearIdleAutoLockTimer();
+  resetSessionNotes();
   render();
 }
 
@@ -456,6 +537,7 @@ async function unlockCryptoSession() {
       state.crypto.hasPassphrase = true;
       state.crypto.key = setupResult.key;
       state.crypto.keyParams = setupResult.params;
+      await loadNotesForActiveSession();
       state.crypto.statusText = "Unlocked";
       elements.passphraseInput.value = "";
       elements.passphraseConfirmInput.value = "";
@@ -482,6 +564,7 @@ async function unlockCryptoSession() {
 
     state.crypto.key = unlockResult.key;
     state.crypto.keyParams = unlockResult.params;
+    await loadNotesForActiveSession();
     state.crypto.statusText = "Unlocked";
     elements.passphraseInput.value = "";
     scheduleIdleAutoLock();
@@ -491,6 +574,8 @@ async function unlockCryptoSession() {
       state.crypto.statusText = "Passphrases do not match";
     } else if (error && error.message === "Passphrase record missing") {
       state.crypto.statusText = "Passphrase setup required";
+    } else if (error && error.message === "Encrypted notes unreadable") {
+      state.crypto.statusText = "Encrypted data unreadable";
     } else if (state.crypto.hasPassphrase) {
       state.crypto.statusText = "Wrong passphrase";
     } else {
@@ -515,7 +600,7 @@ const saveEditorChanges = debounce(() => {
   note.title = elements.noteTitleInput.value.trim() || "Untitled";
   note.content = elements.noteContentInput.value;
   note.updatedAt = nowIso();
-  persistNotes();
+  persistNotesSafe();
   render();
 }, AUTOSAVE_DELAY_MS);
 
@@ -638,7 +723,6 @@ function wireEvents() {
 function init() {
   loadAutoLockPreference();
   loadKeyCheckRecord();
-  loadNotes();
   wireEvents();
   render();
   if (!state.crypto.hasPassphrase) {
