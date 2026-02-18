@@ -49,7 +49,7 @@
 - [x] Add strict Content Security Policy (no inline scripts)
 - [x] Sanitize markdown preview output
 - [x] Avoid third-party analytics and trackers
-- [ ] Add clear local data wipe action
+- [x] Add clear local data wipe action
 - [ ] Add threat model notes in docs
 
 ## 8) UX (Keep It Simple)
@@ -61,7 +61,7 @@
 
 ## 9) Testing and Verification
 
-- [ ] Unit test crypto helpers (key derivation/encrypt/decrypt)
+- [x] Unit test crypto helpers (key derivation/encrypt/decrypt)
 - [ ] Test offline usage and recovery
 - [ ] Test sync with network failures/retries
 - [ ] Validate no plaintext leaves browser during sync

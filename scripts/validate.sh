@@ -12,6 +12,9 @@ required_files=(
   "src/app.js"
   "src/crypto.js"
   "src/sync.js"
+  "tests/helpers/browser-module.js"
+  "tests/crypto.test.js"
+  "tests/sync.test.js"
 )
 
 for file in "${required_files[@]}"; do
@@ -24,10 +27,13 @@ done
 node --check src/app.js
 node --check src/crypto.js
 node --check src/sync.js
+node --test tests/crypto.test.js tests/sync.test.js
 
 grep -Fq 'href="src/styles.css"' index.html
 grep -Fq 'src="src/crypto.js"' index.html
 grep -Fq 'src="src/sync.js"' index.html
 grep -Fq 'src="src/app.js"' index.html
+grep -Fq 'id="wipe-local-data-btn"' index.html
+grep -Fq 'id="wipe-local-data-status"' index.html
 
 echo "Validation passed."

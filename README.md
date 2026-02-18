@@ -17,8 +17,10 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - Locked state hides note content and disables editing until unlock
 - Notes are stored encrypted at rest and loaded only after unlock
 - Encrypted JSON backup export/import from Settings
+- Clear local data wipe action for browser-stored notes/keys/sync settings
 - Manual cloud sync with REST adapter and encrypted payload-only protocol
 - Conflict detection with keep-both merge and local/server resolution controls
+- Unit tests for crypto and sync helper modules (run via validation script)
 
 ## Structure
 
@@ -27,6 +29,8 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - `src/crypto.js`
 - `src/sync.js`
 - `src/app.js`
+- `tests/crypto.test.js`
+- `tests/sync.test.js`
 - `SYNC_PROTOCOL.md`
 - `scripts/validate.sh`
 
