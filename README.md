@@ -4,7 +4,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 
 ## MVP Features
 
-- Local-first note storage (`localStorage`)
+- Local-first note storage (`IndexedDB` with `localStorage` fallback)
 - Markdown editor with live preview
 - Note list with search, create, delete
 - Debounced autosave
