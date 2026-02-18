@@ -23,10 +23,10 @@
 ## 4) End-to-End Encryption
 
 - [ ] Use Web Crypto API (AES-GCM) for note encryption at rest and in transit
-- [ ] Derive key from passphrase (PBKDF2 with salt and high iteration count)
-- [ ] Never store raw passphrase
-- [ ] Keep key only in memory for active session
-- [ ] Add lock/unlock flow with idle auto-lock
+- [x] Derive key from passphrase (PBKDF2 with salt and high iteration count)
+- [x] Never store raw passphrase
+- [x] Keep key only in memory for active session
+- [x] Add lock/unlock flow with idle auto-lock
 
 ## 5) Cloud Sync (Encrypted Blobs Only)
 
