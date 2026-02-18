@@ -398,6 +398,68 @@ async function unlockCryptoSession() {
   }
 }
 
+function openSettings() {
+  elements.settingsView.classList.remove("hidden");
+  elements.settingsView.setAttribute("aria-hidden", "false");
+  elements.passphraseInput.focus();
+}
+
+function closeSettings() {
+  elements.settingsView.classList.add("hidden");
+  elements.settingsView.setAttribute("aria-hidden", "true");
+  elements.openSettingsBtn.focus();
+}
+
+function lockCryptoSession(reasonText = "Locked") {
+  state.crypto.key = null;
+  state.crypto.keyParams = null;
+  state.crypto.unlocking = false;
+  state.crypto.statusText = reasonText;
+  elements.passphraseInput.value = "";
+  clearIdleAutoLockTimer();
+  renderCryptoState();
+}
+
+async function unlockCryptoSession() {
+  if (state.crypto.unlocking || isUnlocked()) {
+    return;
+  }
+
+  const passphrase = elements.passphraseInput.value;
+  if (typeof passphrase !== "string" || passphrase.length < 8) {
+    state.crypto.statusText = "Use at least 8 characters";
+    renderCryptoState();
+    return;
+  }
+
+  if (!window.JournalCrypto) {
+    state.crypto.statusText = "Crypto module unavailable";
+    renderCryptoState();
+    return;
+  }
+
+  state.crypto.unlocking = true;
+  state.crypto.statusText = "Unlocking...";
+  renderCryptoState();
+
+  try {
+    const result = await window.JournalCrypto.deriveSessionKey(passphrase);
+    state.crypto.key = result.key;
+    state.crypto.keyParams = result.params;
+    state.crypto.statusText = "Unlocked";
+    elements.passphraseInput.value = "";
+    scheduleIdleAutoLock();
+  } catch (error) {
+    console.error(error);
+    state.crypto.statusText = "Unlock failed";
+    state.crypto.key = null;
+    state.crypto.keyParams = null;
+  } finally {
+    state.crypto.unlocking = false;
+    renderCryptoState();
+  }
+}
+
 const saveEditorChanges = debounce(() => {
   if (!isUnlocked()) {
     return;
