@@ -5,6 +5,8 @@ const NOTES_DB_NAME = "journal.notes.db.v1";
 const NOTES_DB_VERSION = 1;
 const NOTES_DB_STORE = "records";
 const ENCRYPTED_NOTES_RECORD_ID = "encrypted-notes";
+const SYNC_ENDPOINT_KEY = "journal.sync.endpoint.v1";
+const SYNC_META_KEY = "journal.sync.meta.v1";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
 const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
@@ -45,6 +47,9 @@ const elements = {
   importBackupBtn: document.getElementById("import-backup-btn"),
   importBackupInput: document.getElementById("import-backup-input"),
   backupStatus: document.getElementById("backup-status"),
+  syncEndpointInput: document.getElementById("sync-endpoint-input"),
+  syncNowBtn: document.getElementById("sync-now-btn"),
+  syncStatus: document.getElementById("sync-status"),
 };
 
 const state = {
@@ -61,6 +66,14 @@ const state = {
     rotating: false,
     autoLockMs: DEFAULT_AUTO_LOCK_MS,
     idleTimerId: null,
+  },
+  sync: {
+    endpoint: "",
+    statusText: "Sync not configured.",
+    busy: false,
+    deviceId: null,
+    knownServerRevision: null,
+    lastSyncedAt: null,
   },
 };
 
@@ -216,6 +229,10 @@ function uid() {
   return crypto.randomUUID();
 }
 
+function newRevisionId() {
+  return uid();
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -248,6 +265,57 @@ function loadAutoLockPreference() {
 
 function persistAutoLockPreference() {
   localStorage.setItem(AUTO_LOCK_KEY, String(state.crypto.autoLockMs));
+}
+
+function normalizeSyncEndpoint(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isValidSyncMetaRecord(record) {
+  return (
+    record &&
+    typeof record === "object" &&
+    typeof record.deviceId === "string" &&
+    record.deviceId.length > 0 &&
+    (record.knownServerRevision === null || typeof record.knownServerRevision === "string") &&
+    (record.lastSyncedAt === null || typeof record.lastSyncedAt === "string")
+  );
+}
+
+function persistSyncMeta() {
+  const payload = {
+    deviceId: state.sync.deviceId,
+    knownServerRevision: state.sync.knownServerRevision,
+    lastSyncedAt: state.sync.lastSyncedAt,
+  };
+  localStorage.setItem(SYNC_META_KEY, JSON.stringify(payload));
+}
+
+function loadSyncConfiguration() {
+  state.sync.endpoint = normalizeSyncEndpoint(localStorage.getItem(SYNC_ENDPOINT_KEY));
+
+  const rawMeta = localStorage.getItem(SYNC_META_KEY);
+  const parsedMeta = safeJsonParse(rawMeta, null);
+  if (isValidSyncMetaRecord(parsedMeta)) {
+    state.sync.deviceId = parsedMeta.deviceId;
+    state.sync.knownServerRevision = parsedMeta.knownServerRevision;
+    state.sync.lastSyncedAt = parsedMeta.lastSyncedAt;
+  } else {
+    state.sync.deviceId = uid();
+    state.sync.knownServerRevision = null;
+    state.sync.lastSyncedAt = null;
+    persistSyncMeta();
+  }
+}
+
+function persistSyncEndpoint() {
+  localStorage.setItem(SYNC_ENDPOINT_KEY, state.sync.endpoint);
+}
+
+function setSyncStatus(message, isError = false) {
+  state.sync.statusText = message;
+  elements.syncStatus.textContent = message;
+  elements.syncStatus.classList.toggle("error", isError);
 }
 
 function isValidKeyCheckRecord(record) {
@@ -314,6 +382,8 @@ function isValidEncryptedNotesRecord(record) {
   return (
     record &&
     typeof record === "object" &&
+    typeof record.revisionId === "string" &&
+    record.revisionId.length > 0 &&
     record.payload &&
     typeof record.payload === "object" &&
     typeof record.payload.ivB64 === "string" &&
@@ -329,6 +399,43 @@ function isValidBackupPayload(payload) {
     isValidKeyCheckRecord(payload.keyCheck) &&
     isValidEncryptedNotesRecord(payload.encryptedNotes)
   );
+}
+
+function hasSyncModule() {
+  return Boolean(window.JournalSync);
+}
+
+function getSyncValidators() {
+  return {
+    isValidKeyCheckRecord,
+    isValidEncryptedNotesRecord,
+  };
+}
+
+function isValidSyncEncryptedState(payload) {
+  if (!hasSyncModule()) {
+    return false;
+  }
+  return window.JournalSync.isValidEncryptedState(payload, getSyncValidators());
+}
+
+function isValidSyncEndpoint(endpoint) {
+  if (!hasSyncModule()) {
+    return false;
+  }
+  return window.JournalSync.isValidEndpoint(endpoint);
+}
+
+function createSyncAdapter(endpoint) {
+  if (!hasSyncModule()) {
+    throw new Error("Sync module unavailable");
+  }
+
+  return window.JournalSync.createRestAdapter({
+    endpoint,
+    parseJson: (raw) => safeJsonParse(raw, null),
+    validators: getSyncValidators(),
+  });
 }
 
 function setBackupStatus(message, isError = false) {
@@ -347,6 +454,143 @@ function clearChangePassphraseInputs() {
   elements.newPassphraseConfirmInput.value = "";
 }
 
+function syncSummaryText() {
+  if (!hasSyncModule()) {
+    return "Sync module unavailable.";
+  }
+  if (!state.sync.endpoint) {
+    return "Sync not configured.";
+  }
+  if (!state.crypto.hasPassphrase) {
+    return "Set a passphrase to enable sync.";
+  }
+  if (state.sync.lastSyncedAt) {
+    return `Last synced ${formatDate(state.sync.lastSyncedAt)}.`;
+  }
+  return "Ready to sync.";
+}
+
+function buildSyncRequestPayload(localEncryptedState) {
+  if (!hasSyncModule()) {
+    throw new Error("Sync module unavailable");
+  }
+
+  return window.JournalSync.buildSyncRequest({
+    deviceId: state.sync.deviceId,
+    knownServerRevision: state.sync.knownServerRevision,
+    localRevision: localEncryptedState.encryptedNotes.revisionId,
+    sentAt: nowIso(),
+    encryptedState: localEncryptedState,
+  });
+}
+
+async function buildLocalSyncState() {
+  const encryptedNotesRecord = await encryptedNotesStorage.getEncryptedNotesRecord();
+  if (!isValidKeyCheckRecord(state.crypto.keyCheckRecord) || !isValidEncryptedNotesRecord(encryptedNotesRecord)) {
+    return null;
+  }
+
+  return {
+    keyCheck: state.crypto.keyCheckRecord,
+    encryptedNotes: encryptedNotesRecord,
+  };
+}
+
+async function applySyncedServerState(serverEncryptedState) {
+  if (!isValidSyncEncryptedState(serverEncryptedState)) {
+    return false;
+  }
+
+  localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(serverEncryptedState.keyCheck));
+  await encryptedNotesStorage.setEncryptedNotesRecord(serverEncryptedState.encryptedNotes);
+  state.crypto.keyCheckRecord = serverEncryptedState.keyCheck;
+  state.crypto.hasPassphrase = true;
+
+  if (!isUnlocked()) {
+    return true;
+  }
+
+  try {
+    await loadNotesForActiveSession();
+    state.crypto.statusText = "Unlocked";
+    render();
+    return true;
+  } catch {
+    lockCryptoSession("Synced data requires unlock");
+    openSettings();
+    return true;
+  }
+}
+
+async function syncNow() {
+  if (state.sync.busy) {
+    return;
+  }
+  if (!hasSyncModule()) {
+    setSyncStatus("Sync module unavailable.", true);
+    renderSyncState();
+    return;
+  }
+
+  const endpoint = normalizeSyncEndpoint(state.sync.endpoint);
+  if (!endpoint || !isValidSyncEndpoint(endpoint)) {
+    setSyncStatus("Enter a valid sync endpoint URL.", true);
+    renderSyncState();
+    return;
+  }
+  if (!state.crypto.hasPassphrase) {
+    setSyncStatus("Set a passphrase before syncing.", true);
+    renderSyncState();
+    return;
+  }
+
+  state.sync.busy = true;
+  setSyncStatus("Syncing...");
+  renderSyncState();
+
+  try {
+    if (isUnlocked()) {
+      flushEditorIntoSelectedNote();
+      await persistNotes();
+    }
+
+    const localSyncState = await buildLocalSyncState();
+    if (!localSyncState) {
+      throw new Error("No encrypted notes are available to sync.");
+    }
+
+    const adapter = createSyncAdapter(endpoint);
+    const response = await adapter.sync(buildSyncRequestPayload(localSyncState));
+    const remoteState = response.serverEncryptedState || null;
+    const hasRemoteUpdate =
+      remoteState &&
+      remoteState.encryptedNotes.revisionId !== localSyncState.encryptedNotes.revisionId;
+
+    if (hasRemoteUpdate) {
+      await applySyncedServerState(remoteState);
+    }
+
+    state.sync.knownServerRevision = response.serverRevision || state.sync.knownServerRevision;
+    state.sync.lastSyncedAt = nowIso();
+    persistSyncMeta();
+
+    if (response.conflict) {
+      setSyncStatus("Sync completed with conflict metadata from server.", true);
+    } else {
+      setSyncStatus(`Sync completed ${formatDate(state.sync.lastSyncedAt)}.`);
+    }
+  } catch (error) {
+    console.error(error);
+    const message = error && typeof error.message === "string"
+      ? error.message
+      : "Sync failed.";
+    setSyncStatus(message, true);
+  } finally {
+    state.sync.busy = false;
+    renderSyncState();
+  }
+}
+
 async function persistNotes() {
   if (!isUnlocked() || !state.crypto.key || !window.JournalCrypto) {
     return;
@@ -355,6 +599,7 @@ async function persistNotes() {
   const payload = await window.JournalCrypto.encryptString(plaintext, state.crypto.key);
   const record = {
     version: 1,
+    revisionId: newRevisionId(),
     updatedAt: nowIso(),
     payload,
   };
@@ -660,6 +905,22 @@ function renderCryptoState() {
   elements.autoLockSelect.value = String(state.crypto.autoLockMs);
 }
 
+function renderSyncState() {
+  const endpoint = normalizeSyncEndpoint(state.sync.endpoint);
+  const endpointValid = endpoint.length > 0 && isValidSyncEndpoint(endpoint);
+  const canSync = !state.sync.busy && state.crypto.hasPassphrase && endpointValid;
+
+  elements.syncEndpointInput.value = endpoint;
+  elements.syncEndpointInput.disabled = state.sync.busy;
+  elements.syncNowBtn.disabled = !canSync;
+
+  if (!state.sync.statusText) {
+    setSyncStatus(syncSummaryText());
+  } else if (!state.sync.busy && !elements.syncStatus.classList.contains("error")) {
+    setSyncStatus(syncSummaryText());
+  }
+}
+
 function render() {
   const locked = !isUnlocked();
   const needsSetup = !state.crypto.hasPassphrase;
@@ -686,6 +947,7 @@ function render() {
   }
 
   renderCryptoState();
+  renderSyncState();
   elements.deleteNoteBtn.disabled = locked || getActiveNotes().length <= 1;
 }
 
@@ -868,6 +1130,7 @@ async function rotatePassphrase() {
     };
     const nextEncryptedNotes = {
       version: 1,
+      revisionId: newRevisionId(),
       updatedAt: nowIso(),
       payload: await window.JournalCrypto.encryptString(
         JSON.stringify(notesSnapshot),
@@ -1114,6 +1377,23 @@ function wireEvents() {
     importEncryptedBackupFromFile(file);
   });
 
+  elements.syncEndpointInput.addEventListener("input", (event) => {
+    state.sync.endpoint = normalizeSyncEndpoint(event.target.value);
+    persistSyncEndpoint();
+    setSyncStatus(syncSummaryText());
+    renderSyncState();
+  });
+
+  elements.syncEndpointInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      syncNow();
+    }
+  });
+
+  elements.syncNowBtn.addEventListener("click", () => {
+    syncNow();
+  });
+
   elements.passphraseInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       unlockCryptoSession();
@@ -1173,6 +1453,8 @@ function wireEvents() {
 function init() {
   loadAutoLockPreference();
   loadKeyCheckRecord();
+  loadSyncConfiguration();
+  setSyncStatus(syncSummaryText());
   wireEvents();
   render();
   if (!state.crypto.hasPassphrase) {

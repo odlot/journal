@@ -23,7 +23,7 @@
 ## 4) End-to-End Encryption
 
 - [x] Use Web Crypto API (AES-GCM) for note encryption at rest
-- [ ] Use Web Crypto API (AES-GCM) for note encryption in transit (sync path)
+- [x] Use Web Crypto API (AES-GCM) for note encryption in transit (sync path)
 - [x] Derive key from passphrase (PBKDF2 with salt and high iteration count)
 - [x] Never store raw passphrase
 - [x] Keep key only in memory for active session
@@ -32,11 +32,11 @@
 
 ## 5) Cloud Sync (Encrypted Blobs Only)
 
-- [ ] Define simple sync protocol (`pull`, `push`, conflict metadata)
-- [ ] Sync ciphertext + metadata only (server never sees plaintext)
-- [ ] Add pluggable sync adapter interface
-- [ ] Implement one simple adapter first (REST endpoint)
-- [ ] Add manual sync button + optional periodic sync
+- [x] Define simple sync protocol (`pull`, `push`, conflict metadata)
+- [x] Sync ciphertext + metadata only (server never sees plaintext)
+- [x] Add pluggable sync adapter interface
+- [x] Implement one simple adapter first (REST endpoint)
+- [x] Add manual sync button (periodic sync optional)
 
 ## 6) Conflict Handling
 
