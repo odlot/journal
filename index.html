@@ -57,6 +57,26 @@
           <button id="close-settings-btn" type="button">Close</button>
         </div>
 
+      <section id="locked-overlay" class="locked-overlay hidden" aria-live="polite">
+        <h2>Journal Locked</h2>
+        <p>Unlock in Settings to view and edit notes.</p>
+        <button id="open-settings-overlay-btn" type="button">Open Settings</button>
+      </section>
+    </main>
+
+    <div id="settings-view" class="settings-view hidden" aria-hidden="true">
+      <div id="settings-backdrop" class="settings-backdrop"></div>
+      <section
+        class="settings-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
+        <div class="settings-header">
+          <h2 id="settings-title">Settings</h2>
+          <button id="close-settings-btn" type="button">Close</button>
+        </div>
+
         <p id="crypto-status" class="status-badge locked">Locked</p>
         <label class="field-label" for="passphrase-input">Passphrase</label>
         <input

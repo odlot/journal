@@ -79,6 +79,7 @@ button:disabled {
 }
 
 .layout {
+  position: relative;
   display: grid;
   grid-template-columns: 260px minmax(300px, 1fr) minmax(300px, 1fr);
   gap: 0.8rem;
@@ -241,6 +242,36 @@ textarea {
 
 .settings-subtitle {
   margin-top: 1rem;
+}
+
+.locked-overlay {
+  position: absolute;
+  inset: 0.8rem;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.6rem;
+  background: color-mix(in srgb, var(--panel) 92%, white);
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  text-align: center;
+  z-index: 5;
+}
+
+.locked-overlay.hidden {
+  display: none;
+}
+
+.locked-overlay p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.app-locked .note-list,
+.app-locked .markdown-preview {
+  filter: blur(4px);
+  pointer-events: none;
+  user-select: none;
 }
 
 @media (max-width: 1200px) {
