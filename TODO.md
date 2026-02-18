@@ -18,7 +18,7 @@
 - [ ] Store notes in IndexedDB (fallback: `localStorage`)
 - [ ] Define note schema: `id`, `title`, `content`, `updatedAt`, `deleted`
 - [x] Build CRUD operations for notes
-- [ ] Add local export/import as encrypted JSON backup
+- [x] Add local export/import as encrypted JSON backup
 
 ## 4) End-to-End Encryption
 

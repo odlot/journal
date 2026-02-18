@@ -5,6 +5,7 @@ const LEGACY_STORAGE_KEY = "journal.notes.v1";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
 const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
+const BACKUP_VERSION = 1;
 const AUTOSAVE_DELAY_MS = 250;
 const DEFAULT_AUTO_LOCK_MS = 300000;
 const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
@@ -31,6 +32,10 @@ const elements = {
   lockBtn: document.getElementById("lock-btn"),
   cryptoStatus: document.getElementById("crypto-status"),
   autoLockSelect: document.getElementById("auto-lock-select"),
+  exportBackupBtn: document.getElementById("export-backup-btn"),
+  importBackupBtn: document.getElementById("import-backup-btn"),
+  importBackupInput: document.getElementById("import-backup-input"),
+  backupStatus: document.getElementById("backup-status"),
 };
 
 const state = {
@@ -151,6 +156,21 @@ function loadEncryptedNotesRecord() {
   return isValidEncryptedNotesRecord(parsed) ? parsed : null;
 }
 
+function isValidBackupPayload(payload) {
+  return (
+    payload &&
+    typeof payload === "object" &&
+    payload.version === BACKUP_VERSION &&
+    isValidKeyCheckRecord(payload.keyCheck) &&
+    isValidEncryptedNotesRecord(payload.encryptedNotes)
+  );
+}
+
+function setBackupStatus(message, isError = false) {
+  elements.backupStatus.textContent = message;
+  elements.backupStatus.classList.toggle("error", isError);
+}
+
 function loadLegacyPlaintextNotes() {
   const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
   const parsed = safeJsonParse(raw, []);
@@ -233,6 +253,19 @@ function createNote() {
 
 function getSelectedNote() {
   return state.notes.find((note) => note.id === state.selectedId) || null;
+}
+
+function flushEditorIntoSelectedNote() {
+  if (!isUnlocked()) {
+    return;
+  }
+  const note = getSelectedNote();
+  if (!note) {
+    return;
+  }
+  note.title = elements.noteTitleInput.value.trim() || "Untitled";
+  note.content = elements.noteContentInput.value;
+  note.updatedAt = nowIso();
 }
 
 function deleteSelectedNote() {
@@ -433,6 +466,8 @@ function renderCryptoState() {
   elements.unlockBtn.disabled = state.crypto.unlocking || isUnlocked();
   elements.lockBtn.disabled = !isUnlocked();
   elements.closeSettingsBtn.disabled = needsSetup;
+  elements.exportBackupBtn.disabled = state.crypto.unlocking || !state.crypto.hasPassphrase;
+  elements.importBackupBtn.disabled = state.crypto.unlocking;
   elements.autoLockSelect.value = String(state.crypto.autoLockMs);
 }
 
@@ -589,6 +624,96 @@ async function unlockCryptoSession() {
   }
 }
 
+function makeBackupFilename() {
+  const timestamp = new Date().toISOString().replaceAll(":", "-");
+  return `journal-backup-${timestamp}.json`;
+}
+
+async function exportEncryptedBackup() {
+  if (!state.crypto.hasPassphrase) {
+    setBackupStatus("Set a passphrase before exporting a backup.", true);
+    return;
+  }
+
+  try {
+    if (isUnlocked()) {
+      flushEditorIntoSelectedNote();
+      await persistNotes();
+    }
+
+    const keyCheckRecord = state.crypto.keyCheckRecord;
+    const encryptedNotesRecord = loadEncryptedNotesRecord();
+    if (!isValidKeyCheckRecord(keyCheckRecord) || !isValidEncryptedNotesRecord(encryptedNotesRecord)) {
+      setBackupStatus("No encrypted note data found to export.", true);
+      return;
+    }
+
+    const backupPayload = {
+      version: BACKUP_VERSION,
+      exportedAt: nowIso(),
+      keyCheck: keyCheckRecord,
+      encryptedNotes: encryptedNotesRecord,
+      autoLockMs: state.crypto.autoLockMs,
+    };
+    const blob = new Blob([JSON.stringify(backupPayload, null, 2)], {
+      type: "application/json",
+    });
+    const downloadUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = makeBackupFilename();
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(downloadUrl);
+    setBackupStatus("Encrypted backup exported.");
+  } catch (error) {
+    console.error(error);
+    setBackupStatus("Backup export failed.", true);
+  }
+}
+
+async function importEncryptedBackupFromFile(file) {
+  if (!file) {
+    return;
+  }
+
+  try {
+    const raw = await file.text();
+    const parsed = safeJsonParse(raw, null);
+    if (!isValidBackupPayload(parsed)) {
+      setBackupStatus("Invalid backup file.", true);
+      return;
+    }
+
+    const shouldImport = window.confirm(
+      "Importing this backup will replace your current local encrypted notes. Continue?"
+    );
+    if (!shouldImport) {
+      setBackupStatus("Import canceled.");
+      return;
+    }
+
+    localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(parsed.keyCheck));
+    localStorage.setItem(ENCRYPTED_NOTES_KEY, JSON.stringify(parsed.encryptedNotes));
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+
+    state.crypto.keyCheckRecord = parsed.keyCheck;
+    state.crypto.hasPassphrase = true;
+    state.crypto.autoLockMs = normalizeAutoLockMs(parsed.autoLockMs);
+    persistAutoLockPreference();
+
+    lockCryptoSession("Backup imported. Unlock required");
+    openSettings();
+    setBackupStatus("Backup imported. Unlock to access notes.");
+  } catch (error) {
+    console.error(error);
+    setBackupStatus("Backup import failed.", true);
+  } finally {
+    elements.importBackupInput.value = "";
+  }
+}
+
 const saveEditorChanges = debounce(() => {
   if (!isUnlocked()) {
     return;
@@ -680,6 +805,19 @@ function wireEvents() {
 
   elements.lockBtn.addEventListener("click", () => {
     lockCryptoSession("Locked");
+  });
+
+  elements.exportBackupBtn.addEventListener("click", () => {
+    exportEncryptedBackup();
+  });
+
+  elements.importBackupBtn.addEventListener("click", () => {
+    elements.importBackupInput.click();
+  });
+
+  elements.importBackupInput.addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    importEncryptedBackupFromFile(file);
   });
 
   elements.passphraseInput.addEventListener("keydown", (event) => {
