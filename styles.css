@@ -184,6 +184,10 @@ textarea {
   display: none;
 }
 
+.hidden {
+  display: none;
+}
+
 .settings-backdrop {
   position: absolute;
   inset: 0;
