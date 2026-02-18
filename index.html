@@ -59,7 +59,7 @@
 
       <section id="locked-overlay" class="locked-overlay hidden" aria-live="polite">
         <h2>Journal Locked</h2>
-        <p>Unlock in Settings to view and edit notes.</p>
+        <p id="locked-overlay-message">Unlock in Settings to view and edit notes.</p>
         <button id="open-settings-overlay-btn" type="button">Open Settings</button>
       </section>
     </main>
@@ -85,6 +85,17 @@
           placeholder="Enter passphrase to unlock"
           autocomplete="off"
         />
+        <div id="setup-confirm-wrap" class="hidden">
+          <label class="field-label" for="passphrase-confirm-input"
+            >Confirm passphrase</label
+          >
+          <input
+            id="passphrase-confirm-input"
+            type="password"
+            placeholder="Confirm passphrase"
+            autocomplete="off"
+          />
+        </div>
         <div class="inline-actions">
           <button id="unlock-btn" type="button">Unlock</button>
           <button id="lock-btn" type="button" disabled>Lock</button>

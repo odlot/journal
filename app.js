@@ -2,6 +2,8 @@
 
 const STORAGE_KEY = "journal.notes.v1";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
+const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
+const KEY_CHECK_SENTINEL = "journal-key-check-v1";
 const AUTOSAVE_DELAY_MS = 250;
 const DEFAULT_AUTO_LOCK_MS = 300000;
 const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
@@ -11,6 +13,7 @@ const elements = {
   deleteNoteBtn: document.getElementById("delete-note-btn"),
   openSettingsBtn: document.getElementById("open-settings-btn"),
   openSettingsOverlayBtn: document.getElementById("open-settings-overlay-btn"),
+  lockedOverlayMessage: document.getElementById("locked-overlay-message"),
   closeSettingsBtn: document.getElementById("close-settings-btn"),
   settingsView: document.getElementById("settings-view"),
   settingsBackdrop: document.getElementById("settings-backdrop"),
@@ -21,6 +24,8 @@ const elements = {
   noteContentInput: document.getElementById("note-content-input"),
   previewOutput: document.getElementById("preview-output"),
   passphraseInput: document.getElementById("passphrase-input"),
+  setupConfirmWrap: document.getElementById("setup-confirm-wrap"),
+  passphraseConfirmInput: document.getElementById("passphrase-confirm-input"),
   unlockBtn: document.getElementById("unlock-btn"),
   lockBtn: document.getElementById("lock-btn"),
   cryptoStatus: document.getElementById("crypto-status"),
@@ -34,6 +39,8 @@ const state = {
   crypto: {
     key: null,
     keyParams: null,
+    keyCheckRecord: null,
+    hasPassphrase: false,
     statusText: "Locked",
     unlocking: false,
     autoLockMs: DEFAULT_AUTO_LOCK_MS,
@@ -77,6 +84,37 @@ function loadAutoLockPreference() {
 
 function persistAutoLockPreference() {
   localStorage.setItem(AUTO_LOCK_KEY, String(state.crypto.autoLockMs));
+}
+
+function isValidKeyCheckRecord(record) {
+  return (
+    record &&
+    typeof record === "object" &&
+    typeof record.saltB64 === "string" &&
+    Number.isInteger(record.iterations) &&
+    record.check &&
+    typeof record.check === "object" &&
+    typeof record.check.ivB64 === "string" &&
+    typeof record.check.ciphertextB64 === "string"
+  );
+}
+
+function loadKeyCheckRecord() {
+  const raw = localStorage.getItem(KEY_CHECK_KEY);
+  const parsed = safeJsonParse(raw, null);
+  if (isValidKeyCheckRecord(parsed)) {
+    state.crypto.keyCheckRecord = parsed;
+    state.crypto.hasPassphrase = true;
+    state.crypto.statusText = "Locked";
+    return;
+  }
+  state.crypto.keyCheckRecord = null;
+  state.crypto.hasPassphrase = false;
+  state.crypto.statusText = "Set passphrase to start";
+}
+
+function persistKeyCheckRecord(record) {
+  localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(record));
 }
 
 function loadNotes() {
@@ -304,19 +342,30 @@ function touchCryptoActivity() {
 }
 
 function renderCryptoState() {
+  const needsSetup = !state.crypto.hasPassphrase;
   elements.cryptoStatus.textContent = state.crypto.statusText;
   elements.cryptoStatus.classList.toggle("unlocked", isUnlocked());
   elements.cryptoStatus.classList.toggle("locked", !isUnlocked());
+  elements.setupConfirmWrap.classList.toggle("hidden", !needsSetup);
+  elements.passphraseInput.placeholder = needsSetup
+    ? "Create a passphrase (min 8 chars)"
+    : "Enter passphrase to unlock";
+  elements.unlockBtn.textContent = needsSetup ? "Set Passphrase" : "Unlock";
   elements.unlockBtn.disabled = state.crypto.unlocking || isUnlocked();
   elements.lockBtn.disabled = !isUnlocked();
+  elements.closeSettingsBtn.disabled = needsSetup;
   elements.autoLockSelect.value = String(state.crypto.autoLockMs);
 }
 
 function render() {
   const locked = !isUnlocked();
+  const needsSetup = !state.crypto.hasPassphrase;
 
   document.body.classList.toggle("app-locked", locked);
   elements.lockedOverlay.classList.toggle("hidden", !locked);
+  elements.lockedOverlayMessage.textContent = needsSetup
+    ? "Set a passphrase in Settings to start."
+    : "Unlock in Settings to view and edit notes.";
   elements.searchInput.disabled = locked;
   elements.noteTitleInput.disabled = locked;
   elements.noteContentInput.disabled = locked;
@@ -343,6 +392,9 @@ function openSettings() {
 }
 
 function closeSettings() {
+  if (!state.crypto.hasPassphrase) {
+    return;
+  }
   elements.settingsView.classList.add("hidden");
   elements.settingsView.setAttribute("aria-hidden", "true");
   elements.openSettingsBtn.focus();
@@ -354,6 +406,7 @@ function lockCryptoSession(reasonText = "Locked") {
   state.crypto.unlocking = false;
   state.crypto.statusText = reasonText;
   elements.passphraseInput.value = "";
+  elements.passphraseConfirmInput.value = "";
   clearIdleAutoLockTimer();
   render();
 }
@@ -381,15 +434,68 @@ async function unlockCryptoSession() {
   renderCryptoState();
 
   try {
-    const result = await window.JournalCrypto.deriveSessionKey(passphrase);
-    state.crypto.key = result.key;
-    state.crypto.keyParams = result.params;
+    if (!state.crypto.hasPassphrase) {
+      const confirmation = elements.passphraseConfirmInput.value;
+      if (passphrase !== confirmation) {
+        throw new Error("Passphrases do not match");
+      }
+
+      const setupResult = await window.JournalCrypto.deriveSessionKey(passphrase);
+      const checkPayload = await window.JournalCrypto.encryptString(
+        KEY_CHECK_SENTINEL,
+        setupResult.key
+      );
+      const keyCheckRecord = {
+        version: 1,
+        saltB64: setupResult.params.saltB64,
+        iterations: setupResult.params.iterations,
+        check: checkPayload,
+      };
+      persistKeyCheckRecord(keyCheckRecord);
+      state.crypto.keyCheckRecord = keyCheckRecord;
+      state.crypto.hasPassphrase = true;
+      state.crypto.key = setupResult.key;
+      state.crypto.keyParams = setupResult.params;
+      state.crypto.statusText = "Unlocked";
+      elements.passphraseInput.value = "";
+      elements.passphraseConfirmInput.value = "";
+      scheduleIdleAutoLock();
+      return;
+    }
+
+    const keyCheckRecord = state.crypto.keyCheckRecord;
+    if (!isValidKeyCheckRecord(keyCheckRecord)) {
+      throw new Error("Passphrase record missing");
+    }
+
+    const unlockResult = await window.JournalCrypto.deriveSessionKey(passphrase, {
+      saltB64: keyCheckRecord.saltB64,
+      iterations: keyCheckRecord.iterations,
+    });
+    const checkPlaintext = await window.JournalCrypto.decryptString(
+      keyCheckRecord.check,
+      unlockResult.key
+    );
+    if (checkPlaintext !== KEY_CHECK_SENTINEL) {
+      throw new Error("Wrong passphrase");
+    }
+
+    state.crypto.key = unlockResult.key;
+    state.crypto.keyParams = unlockResult.params;
     state.crypto.statusText = "Unlocked";
     elements.passphraseInput.value = "";
     scheduleIdleAutoLock();
   } catch (error) {
     console.error(error);
-    state.crypto.statusText = "Unlock failed";
+    if (error && error.message === "Passphrases do not match") {
+      state.crypto.statusText = "Passphrases do not match";
+    } else if (error && error.message === "Passphrase record missing") {
+      state.crypto.statusText = "Passphrase setup required";
+    } else if (state.crypto.hasPassphrase) {
+      state.crypto.statusText = "Wrong passphrase";
+    } else {
+      state.crypto.statusText = "Unlock failed";
+    }
     state.crypto.key = null;
     state.crypto.keyParams = null;
   } finally {
@@ -559,6 +665,12 @@ function wireEvents() {
     }
   });
 
+  elements.passphraseConfirmInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      unlockCryptoSession();
+    }
+  });
+
   elements.autoLockSelect.addEventListener("change", (event) => {
     state.crypto.autoLockMs = normalizeAutoLockMs(event.target.value);
     persistAutoLockPreference();
@@ -587,9 +699,13 @@ function wireEvents() {
 
 function init() {
   loadAutoLockPreference();
+  loadKeyCheckRecord();
   loadNotes();
   wireEvents();
   render();
+  if (!state.crypto.hasPassphrase) {
+    openSettings();
+  }
 }
 
 init();
