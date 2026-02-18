@@ -12,6 +12,13 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
+env:
+  CI: "true"
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -39,11 +46,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          check-latest: true
 
       - name: Validate
-        shell: bash
         run: ./scripts/validate.sh
+
+      - name: Ensure clean working tree after validation
+        run: |
+          git update-index -q --refresh
+          git diff --exit-code
+          git diff --cached --exit-code
 
   shellcheck:
     name: Shellcheck
@@ -58,13 +69,26 @@ jobs:
           fetch-depth: 1
 
       - name: Install shellcheck
-        shell: bash
         run: |
           if ! command -v shellcheck >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install --yes shellcheck
+            sudo apt-get install --yes --no-install-recommends shellcheck
           fi
 
       - name: Lint shell scripts
-        shell: bash
-        run: shellcheck scripts/validate.sh
+        run: shellcheck --severity=warning scripts/validate.sh
+
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Lint workflow files
+        uses: docker://rhysd/actionlint:latest
