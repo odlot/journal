@@ -15,6 +15,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - In-memory encryption session unlock/lock with idle auto-lock timer
 - Locked state hides note content and disables editing until unlock
 - Notes are stored encrypted at rest and loaded only after unlock
+- Encrypted JSON backup export/import from Settings
 
 ## Run
 
