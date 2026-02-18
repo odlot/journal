@@ -50,6 +50,10 @@ const elements = {
   syncEndpointInput: document.getElementById("sync-endpoint-input"),
   syncNowBtn: document.getElementById("sync-now-btn"),
   syncStatus: document.getElementById("sync-status"),
+  syncConflictWrap: document.getElementById("sync-conflict-wrap"),
+  syncConflictText: document.getElementById("sync-conflict-text"),
+  syncUseLocalBtn: document.getElementById("sync-use-local-btn"),
+  syncUseServerBtn: document.getElementById("sync-use-server-btn"),
 };
 
 const state = {
@@ -73,7 +77,9 @@ const state = {
     busy: false,
     deviceId: null,
     knownServerRevision: null,
+    lastSyncedLocalRevision: null,
     lastSyncedAt: null,
+    pendingConflict: null,
   },
 };
 
@@ -278,6 +284,7 @@ function isValidSyncMetaRecord(record) {
     typeof record.deviceId === "string" &&
     record.deviceId.length > 0 &&
     (record.knownServerRevision === null || typeof record.knownServerRevision === "string") &&
+    (record.lastSyncedLocalRevision === null || typeof record.lastSyncedLocalRevision === "string") &&
     (record.lastSyncedAt === null || typeof record.lastSyncedAt === "string")
   );
 }
@@ -286,6 +293,7 @@ function persistSyncMeta() {
   const payload = {
     deviceId: state.sync.deviceId,
     knownServerRevision: state.sync.knownServerRevision,
+    lastSyncedLocalRevision: state.sync.lastSyncedLocalRevision,
     lastSyncedAt: state.sync.lastSyncedAt,
   };
   localStorage.setItem(SYNC_META_KEY, JSON.stringify(payload));
@@ -299,10 +307,12 @@ function loadSyncConfiguration() {
   if (isValidSyncMetaRecord(parsedMeta)) {
     state.sync.deviceId = parsedMeta.deviceId;
     state.sync.knownServerRevision = parsedMeta.knownServerRevision;
+    state.sync.lastSyncedLocalRevision = parsedMeta.lastSyncedLocalRevision || null;
     state.sync.lastSyncedAt = parsedMeta.lastSyncedAt;
   } else {
     state.sync.deviceId = uid();
     state.sync.knownServerRevision = null;
+    state.sync.lastSyncedLocalRevision = null;
     state.sync.lastSyncedAt = null;
     persistSyncMeta();
   }
@@ -454,7 +464,204 @@ function clearChangePassphraseInputs() {
   elements.newPassphraseConfirmInput.value = "";
 }
 
+function noteUpdatedAtMs(note) {
+  const value = Date.parse(String(note && note.updatedAt ? note.updatedAt : ""));
+  return Number.isNaN(value) ? 0 : value;
+}
+
+function notesContentEqual(left, right) {
+  return (
+    String(left.title || "") === String(right.title || "") &&
+    String(left.content || "") === String(right.content || "") &&
+    Boolean(left.deleted) === Boolean(right.deleted)
+  );
+}
+
+function makeConflictCopyTitle(title, origin) {
+  const base = String(title || "").trim() || "Untitled";
+  return `${base} (Conflict copy from ${origin})`;
+}
+
+function createConflictCopy(note, origin) {
+  return normalizeNote({
+    ...note,
+    id: uid(),
+    title: makeConflictCopyTitle(note.title, origin),
+    deleted: false,
+    updatedAt: nowIso(),
+  });
+}
+
+function orderedUnionNoteIds(localNotes, serverNotes) {
+  const ids = [];
+  const seen = new Set();
+
+  for (const note of localNotes) {
+    if (!seen.has(note.id)) {
+      ids.push(note.id);
+      seen.add(note.id);
+    }
+  }
+  for (const note of serverNotes) {
+    if (!seen.has(note.id)) {
+      ids.push(note.id);
+      seen.add(note.id);
+    }
+  }
+  return ids;
+}
+
+function mergeNotesKeepBoth(localNotes, serverNotes) {
+  const localById = new Map(localNotes.map((note) => [note.id, normalizeNote(note)]));
+  const serverById = new Map(serverNotes.map((note) => [note.id, normalizeNote(note)]));
+  const merged = [];
+  const conflicts = [];
+
+  for (const id of orderedUnionNoteIds(localNotes, serverNotes)) {
+    const localNote = localById.get(id) || null;
+    const serverNote = serverById.get(id) || null;
+
+    if (localNote && !serverNote) {
+      merged.push(localNote);
+      continue;
+    }
+    if (serverNote && !localNote) {
+      merged.push(serverNote);
+      continue;
+    }
+    if (!localNote || !serverNote) {
+      continue;
+    }
+
+    if (notesContentEqual(localNote, serverNote)) {
+      merged.push(noteUpdatedAtMs(localNote) >= noteUpdatedAtMs(serverNote) ? localNote : serverNote);
+      continue;
+    }
+
+    const localIsWinner = noteUpdatedAtMs(localNote) >= noteUpdatedAtMs(serverNote);
+    const winner = localIsWinner ? localNote : serverNote;
+    const loser = localIsWinner ? serverNote : localNote;
+    const loserOrigin = localIsWinner ? "server" : "local";
+    const winnerOrigin = localIsWinner ? "local" : "server";
+
+    merged.push(winner);
+    let conflictCopyId = null;
+    if (!loser.deleted) {
+      const copy = createConflictCopy(loser, loserOrigin);
+      merged.push(copy);
+      conflictCopyId = copy.id;
+    }
+
+    conflicts.push({
+      noteId: id,
+      localUpdatedAt: localNote.updatedAt,
+      serverUpdatedAt: serverNote.updatedAt,
+      winner: winnerOrigin,
+      conflictCopyId,
+    });
+  }
+
+  merged.sort((a, b) => noteUpdatedAtMs(b) - noteUpdatedAtMs(a));
+  return {
+    mergedNotes: normalizeNotesArray(merged),
+    conflicts,
+  };
+}
+
+async function decryptEncryptedNotesRecord(record, key) {
+  const plaintext = await window.JournalCrypto.decryptString(record.payload, key);
+  const parsed = safeJsonParse(plaintext, []);
+  if (!Array.isArray(parsed)) {
+    throw new Error("Encrypted notes unreadable");
+  }
+  return normalizeNotesArray(parsed);
+}
+
+async function encryptNotesSnapshot(notes, key) {
+  const payload = await window.JournalCrypto.encryptString(
+    JSON.stringify(normalizeNotesArray(notes)),
+    key
+  );
+  return {
+    version: 1,
+    revisionId: newRevisionId(),
+    updatedAt: nowIso(),
+    payload,
+  };
+}
+
+function setPendingConflict(conflictState) {
+  state.sync.pendingConflict = conflictState;
+}
+
+function clearPendingConflict() {
+  state.sync.pendingConflict = null;
+}
+
+async function resolvePendingConflictWithLocal() {
+  const conflict = state.sync.pendingConflict;
+  if (!conflict || state.sync.busy) {
+    return;
+  }
+  state.sync.busy = true;
+  renderSyncState();
+  try {
+    localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(conflict.localEncryptedState.keyCheck));
+    await encryptedNotesStorage.setEncryptedNotesRecord(conflict.localEncryptedState.encryptedNotes);
+    state.crypto.keyCheckRecord = conflict.localEncryptedState.keyCheck;
+    state.crypto.hasPassphrase = true;
+    state.sync.lastSyncedLocalRevision = conflict.localEncryptedState.encryptedNotes.revisionId;
+    clearPendingConflict();
+    persistSyncMeta();
+
+    if (isUnlocked()) {
+      try {
+        await loadNotesForActiveSession();
+        state.crypto.statusText = "Unlocked";
+      } catch {
+        lockCryptoSession("Conflict resolution requires unlock");
+        openSettings();
+      }
+    }
+
+    setSyncStatus("Conflict resolved with local version. Sync again to push changes.");
+    render();
+  } catch (error) {
+    console.error(error);
+    setSyncStatus("Failed to apply local conflict resolution.", true);
+  } finally {
+    state.sync.busy = false;
+    renderSyncState();
+  }
+}
+
+async function resolvePendingConflictWithServer() {
+  const conflict = state.sync.pendingConflict;
+  if (!conflict || state.sync.busy) {
+    return;
+  }
+  state.sync.busy = true;
+  renderSyncState();
+  try {
+    await applySyncedServerState(conflict.serverEncryptedState);
+    state.sync.lastSyncedLocalRevision = conflict.serverEncryptedState.encryptedNotes.revisionId;
+    clearPendingConflict();
+    persistSyncMeta();
+    setSyncStatus("Conflict resolved with server version.");
+    render();
+  } catch (error) {
+    console.error(error);
+    setSyncStatus("Failed to apply server conflict resolution.", true);
+  } finally {
+    state.sync.busy = false;
+    renderSyncState();
+  }
+}
+
 function syncSummaryText() {
+  if (state.sync.pendingConflict) {
+    return "Pending conflict resolution.";
+  }
   if (!hasSyncModule()) {
     return "Sync module unavailable.";
   }
@@ -526,6 +733,11 @@ async function syncNow() {
   if (state.sync.busy) {
     return;
   }
+  if (state.sync.pendingConflict) {
+    setSyncStatus("Resolve pending conflict before syncing again.", true);
+    renderSyncState();
+    return;
+  }
   if (!hasSyncModule()) {
     setSyncStatus("Sync module unavailable.", true);
     renderSyncState();
@@ -565,18 +777,56 @@ async function syncNow() {
     const hasRemoteUpdate =
       remoteState &&
       remoteState.encryptedNotes.revisionId !== localSyncState.encryptedNotes.revisionId;
+    const localRevision = localSyncState.encryptedNotes.revisionId;
+    const remoteRevision = remoteState ? remoteState.encryptedNotes.revisionId : null;
+    const localChangedSinceLastSync =
+      Boolean(state.sync.lastSyncedLocalRevision) &&
+      localRevision !== state.sync.lastSyncedLocalRevision;
+    const remoteChangedSinceLastSync =
+      Boolean(state.sync.lastSyncedLocalRevision) &&
+      Boolean(remoteRevision) &&
+      remoteRevision !== state.sync.lastSyncedLocalRevision;
+    const hasConflictSignal = Boolean(response.conflict);
+    const hasDivergenceConflict =
+      Boolean(hasRemoteUpdate) && localChangedSinceLastSync && remoteChangedSinceLastSync;
 
-    if (hasRemoteUpdate) {
+    if (hasConflictSignal || hasDivergenceConflict) {
+      if (!isUnlocked() || !state.crypto.key) {
+        throw new Error("Unlock to resolve sync conflicts.");
+      }
+      if (!remoteState) {
+        throw new Error("Conflict detected without server state.");
+      }
+
+      const localNotes = await decryptEncryptedNotesRecord(localSyncState.encryptedNotes, state.crypto.key);
+      const serverNotes = await decryptEncryptedNotesRecord(remoteState.encryptedNotes, state.crypto.key);
+      const mergeResult = mergeNotesKeepBoth(localNotes, serverNotes);
+      const mergedEncryptedNotes = await encryptNotesSnapshot(mergeResult.mergedNotes, state.crypto.key);
+      await encryptedNotesStorage.setEncryptedNotesRecord(mergedEncryptedNotes);
+      await loadNotesForActiveSession();
+
+      state.sync.lastSyncedLocalRevision = mergedEncryptedNotes.revisionId;
+      setPendingConflict({
+        detectedAt: nowIso(),
+        localEncryptedState: localSyncState,
+        serverEncryptedState: remoteState,
+        summary:
+          mergeResult.conflicts.length > 0
+            ? `Conflict detected on ${mergeResult.conflicts.length} note(s). Keep-both merge applied locally.`
+            : "Conflict metadata detected. Keep-both merge applied locally.",
+      });
+      setSyncStatus("Conflict detected. Review merge/replace options.", true);
+    } else if (hasRemoteUpdate) {
       await applySyncedServerState(remoteState);
+      state.sync.lastSyncedLocalRevision = remoteRevision;
+    } else {
+      state.sync.lastSyncedLocalRevision = localRevision;
     }
 
     state.sync.knownServerRevision = response.serverRevision || state.sync.knownServerRevision;
     state.sync.lastSyncedAt = nowIso();
     persistSyncMeta();
-
-    if (response.conflict) {
-      setSyncStatus("Sync completed with conflict metadata from server.", true);
-    } else {
+    if (!state.sync.pendingConflict) {
       setSyncStatus(`Sync completed ${formatDate(state.sync.lastSyncedAt)}.`);
     }
   } catch (error) {
@@ -908,11 +1158,23 @@ function renderCryptoState() {
 function renderSyncState() {
   const endpoint = normalizeSyncEndpoint(state.sync.endpoint);
   const endpointValid = endpoint.length > 0 && isValidSyncEndpoint(endpoint);
-  const canSync = !state.sync.busy && state.crypto.hasPassphrase && endpointValid;
+  const hasPendingConflict = Boolean(state.sync.pendingConflict);
+  const canSync =
+    !state.sync.busy &&
+    !hasPendingConflict &&
+    state.crypto.hasPassphrase &&
+    endpointValid;
 
   elements.syncEndpointInput.value = endpoint;
   elements.syncEndpointInput.disabled = state.sync.busy;
   elements.syncNowBtn.disabled = !canSync;
+  elements.syncConflictWrap.classList.toggle("hidden", !hasPendingConflict);
+  elements.syncUseLocalBtn.disabled = state.sync.busy || !hasPendingConflict;
+  elements.syncUseServerBtn.disabled = state.sync.busy || !hasPendingConflict;
+
+  if (hasPendingConflict) {
+    elements.syncConflictText.textContent = state.sync.pendingConflict.summary;
+  }
 
   if (!state.sync.statusText) {
     setSyncStatus(syncSummaryText());
@@ -1392,6 +1654,14 @@ function wireEvents() {
 
   elements.syncNowBtn.addEventListener("click", () => {
     syncNow();
+  });
+
+  elements.syncUseLocalBtn.addEventListener("click", () => {
+    resolvePendingConflictWithLocal();
+  });
+
+  elements.syncUseServerBtn.addEventListener("click", () => {
+    resolvePendingConflictWithServer();
   });
 
   elements.passphraseInput.addEventListener("keydown", (event) => {

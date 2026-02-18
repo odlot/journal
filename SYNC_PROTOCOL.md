@@ -78,4 +78,6 @@ This document defines the current sync contract between the journal client and a
 - Push latest local encrypted state before sync if unlocked.
 - Apply `serverEncryptedState` when `encryptedNotes.revisionId` differs from local revision.
 - Persist `serverRevision` as `knownServerRevision`.
-- Surface conflict metadata in UI status.
+- Detect divergence using encrypted revision ids and per-note `updatedAt` values after decrypt.
+- On conflict, apply a local keep-both merge (create conflict copies), then expose resolution controls.
+- Allow explicit replacement with local merged state or server state via UI actions.
