@@ -29,5 +29,7 @@ grep -Fq 'href="src/styles.css"' index.html
 grep -Fq 'src="src/crypto.js"' index.html
 grep -Fq 'src="src/sync.js"' index.html
 grep -Fq 'src="src/app.js"' index.html
+grep -Fq 'id="wipe-local-data-btn"' index.html
+grep -Fq 'id="wipe-local-data-status"' index.html
 
 echo "Validation passed."

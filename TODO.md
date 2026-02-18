@@ -49,7 +49,7 @@
 - [x] Add strict Content Security Policy (no inline scripts)
 - [x] Sanitize markdown preview output
 - [x] Avoid third-party analytics and trackers
-- [ ] Add clear local data wipe action
+- [x] Add clear local data wipe action
 - [ ] Add threat model notes in docs
 
 ## 8) UX (Keep It Simple)

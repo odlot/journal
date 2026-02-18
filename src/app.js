@@ -14,6 +14,7 @@ const BACKUP_VERSION = 1;
 const AUTOSAVE_DELAY_MS = 250;
 const DEFAULT_AUTO_LOCK_MS = 300000;
 const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
+const LOCAL_DATA_KEYS = Object.freeze([KEY_CHECK_KEY, AUTO_LOCK_KEY, SYNC_ENDPOINT_KEY, SYNC_META_KEY]);
 
 const elements = {
   newNoteBtn: document.getElementById("new-note-btn"),
@@ -47,6 +48,8 @@ const elements = {
   importBackupBtn: document.getElementById("import-backup-btn"),
   importBackupInput: document.getElementById("import-backup-input"),
   backupStatus: document.getElementById("backup-status"),
+  wipeLocalDataBtn: document.getElementById("wipe-local-data-btn"),
+  wipeLocalDataStatus: document.getElementById("wipe-local-data-status"),
   syncEndpointInput: document.getElementById("sync-endpoint-input"),
   syncNowBtn: document.getElementById("sync-now-btn"),
   syncStatus: document.getElementById("sync-status"),
@@ -68,6 +71,7 @@ const state = {
     statusText: "Locked",
     unlocking: false,
     rotating: false,
+    wiping: false,
     autoLockMs: DEFAULT_AUTO_LOCK_MS,
     idleTimerId: null,
   },
@@ -453,6 +457,11 @@ function setBackupStatus(message, isError = false) {
   elements.backupStatus.classList.toggle("error", isError);
 }
 
+function setWipeLocalDataStatus(message, isError = false) {
+  elements.wipeLocalDataStatus.textContent = message;
+  elements.wipeLocalDataStatus.classList.toggle("error", isError);
+}
+
 function setChangePassphraseStatus(message, isError = false) {
   elements.changePassphraseStatus.textContent = message;
   elements.changePassphraseStatus.classList.toggle("error", isError);
@@ -596,6 +605,79 @@ function setPendingConflict(conflictState) {
 
 function clearPendingConflict() {
   state.sync.pendingConflict = null;
+}
+
+function resetSyncStateForFreshSetup() {
+  state.sync.endpoint = "";
+  state.sync.statusText = "Sync not configured.";
+  state.sync.busy = false;
+  state.sync.deviceId = uid();
+  state.sync.knownServerRevision = null;
+  state.sync.lastSyncedLocalRevision = null;
+  state.sync.lastSyncedAt = null;
+  state.sync.pendingConflict = null;
+}
+
+function removeStoredLocalDataKeys() {
+  for (const key of LOCAL_DATA_KEYS) {
+    localStorage.removeItem(key);
+  }
+}
+
+async function wipeLocalData() {
+  if (state.crypto.wiping || state.crypto.unlocking || state.crypto.rotating || state.sync.busy) {
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "This will permanently erase all local journal data in this browser, including encrypted notes, passphrase setup, sync metadata, and preferences. Continue?"
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  state.crypto.wiping = true;
+  state.crypto.statusText = "Wiping local data...";
+  setWipeLocalDataStatus("Wiping local data...");
+  render();
+
+  try {
+    clearIdleAutoLockTimer();
+    await encryptedNotesStorage.clearEncryptedNotesRecord();
+    removeStoredLocalDataKeys();
+
+    state.crypto.key = null;
+    state.crypto.keyParams = null;
+    state.crypto.keyCheckRecord = null;
+    state.crypto.hasPassphrase = false;
+    state.crypto.unlocking = false;
+    state.crypto.rotating = false;
+    state.crypto.autoLockMs = DEFAULT_AUTO_LOCK_MS;
+    state.crypto.statusText = "Set passphrase to start";
+
+    elements.passphraseInput.value = "";
+    elements.passphraseConfirmInput.value = "";
+    clearChangePassphraseInputs();
+    setChangePassphraseStatus("No passphrase changes yet.");
+    setBackupStatus("No backup action yet.");
+
+    resetSyncStateForFreshSetup();
+    persistSyncMeta();
+    setSyncStatus(syncSummaryText());
+
+    resetSessionNotes();
+    setWipeLocalDataStatus("Local data wiped. Set a new passphrase to start.");
+    render();
+    openSettings();
+  } catch (error) {
+    console.error(error);
+    state.crypto.statusText = isUnlocked() ? "Unlocked" : "Locked";
+    setWipeLocalDataStatus("Failed to wipe local data.", true);
+    render();
+  } finally {
+    state.crypto.wiping = false;
+    render();
+  }
 }
 
 async function resolvePendingConflictWithLocal() {
@@ -1132,7 +1214,7 @@ function touchCryptoActivity() {
 function renderCryptoState() {
   const needsSetup = !state.crypto.hasPassphrase;
   const canRotate = state.crypto.hasPassphrase;
-  const controlsBusy = state.crypto.unlocking || state.crypto.rotating;
+  const controlsBusy = state.crypto.unlocking || state.crypto.rotating || state.crypto.wiping;
 
   elements.cryptoStatus.textContent = state.crypto.statusText;
   elements.cryptoStatus.classList.toggle("unlocked", isUnlocked());
@@ -1153,6 +1235,7 @@ function renderCryptoState() {
   elements.newPassphraseInput.disabled = controlsBusy || !isUnlocked();
   elements.newPassphraseConfirmInput.disabled = controlsBusy || !isUnlocked();
   elements.autoLockSelect.value = String(state.crypto.autoLockMs);
+  elements.wipeLocalDataBtn.disabled = controlsBusy;
 }
 
 function renderSyncState() {
@@ -1233,6 +1316,7 @@ function lockCryptoSession(reasonText = "Locked") {
   state.crypto.keyParams = null;
   state.crypto.unlocking = false;
   state.crypto.rotating = false;
+  state.crypto.wiping = false;
   state.crypto.statusText = reasonText;
   elements.passphraseInput.value = "";
   elements.passphraseConfirmInput.value = "";
@@ -1637,6 +1721,10 @@ function wireEvents() {
   elements.importBackupInput.addEventListener("change", (event) => {
     const file = event.target.files && event.target.files[0];
     importEncryptedBackupFromFile(file);
+  });
+
+  elements.wipeLocalDataBtn.addEventListener("click", () => {
+    wipeLocalData();
   });
 
   elements.syncEndpointInput.addEventListener("input", (event) => {
