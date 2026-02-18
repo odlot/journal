@@ -32,6 +32,12 @@ const elements = {
   lockBtn: document.getElementById("lock-btn"),
   cryptoStatus: document.getElementById("crypto-status"),
   autoLockSelect: document.getElementById("auto-lock-select"),
+  changePassphraseWrap: document.getElementById("change-passphrase-wrap"),
+  currentPassphraseInput: document.getElementById("current-passphrase-input"),
+  newPassphraseInput: document.getElementById("new-passphrase-input"),
+  newPassphraseConfirmInput: document.getElementById("new-passphrase-confirm-input"),
+  changePassphraseBtn: document.getElementById("change-passphrase-btn"),
+  changePassphraseStatus: document.getElementById("change-passphrase-status"),
   exportBackupBtn: document.getElementById("export-backup-btn"),
   importBackupBtn: document.getElementById("import-backup-btn"),
   importBackupInput: document.getElementById("import-backup-input"),
@@ -49,6 +55,7 @@ const state = {
     hasPassphrase: false,
     statusText: "Locked",
     unlocking: false,
+    rotating: false,
     autoLockMs: DEFAULT_AUTO_LOCK_MS,
     idleTimerId: null,
   },
@@ -123,6 +130,14 @@ function persistKeyCheckRecord(record) {
   localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(record));
 }
 
+function setOrRemoveLocalStorage(key, value) {
+  if (value === null) {
+    localStorage.removeItem(key);
+    return;
+  }
+  localStorage.setItem(key, value);
+}
+
 function normalizeNote(rawNote) {
   return {
     id: String(rawNote.id || uid()),
@@ -169,6 +184,17 @@ function isValidBackupPayload(payload) {
 function setBackupStatus(message, isError = false) {
   elements.backupStatus.textContent = message;
   elements.backupStatus.classList.toggle("error", isError);
+}
+
+function setChangePassphraseStatus(message, isError = false) {
+  elements.changePassphraseStatus.textContent = message;
+  elements.changePassphraseStatus.classList.toggle("error", isError);
+}
+
+function clearChangePassphraseInputs() {
+  elements.currentPassphraseInput.value = "";
+  elements.newPassphraseInput.value = "";
+  elements.newPassphraseConfirmInput.value = "";
 }
 
 function loadLegacyPlaintextNotes() {
@@ -455,19 +481,27 @@ function touchCryptoActivity() {
 
 function renderCryptoState() {
   const needsSetup = !state.crypto.hasPassphrase;
+  const canRotate = state.crypto.hasPassphrase;
+  const controlsBusy = state.crypto.unlocking || state.crypto.rotating;
+
   elements.cryptoStatus.textContent = state.crypto.statusText;
   elements.cryptoStatus.classList.toggle("unlocked", isUnlocked());
   elements.cryptoStatus.classList.toggle("locked", !isUnlocked());
   elements.setupConfirmWrap.classList.toggle("hidden", !needsSetup);
+  elements.changePassphraseWrap.classList.toggle("hidden", !canRotate);
   elements.passphraseInput.placeholder = needsSetup
     ? "Create a passphrase (min 8 chars)"
     : "Enter passphrase to unlock";
   elements.unlockBtn.textContent = needsSetup ? "Set Passphrase" : "Unlock";
-  elements.unlockBtn.disabled = state.crypto.unlocking || isUnlocked();
-  elements.lockBtn.disabled = !isUnlocked();
+  elements.unlockBtn.disabled = controlsBusy || isUnlocked();
+  elements.lockBtn.disabled = !isUnlocked() || controlsBusy;
   elements.closeSettingsBtn.disabled = needsSetup;
-  elements.exportBackupBtn.disabled = state.crypto.unlocking || !state.crypto.hasPassphrase;
-  elements.importBackupBtn.disabled = state.crypto.unlocking;
+  elements.exportBackupBtn.disabled = controlsBusy || !state.crypto.hasPassphrase;
+  elements.importBackupBtn.disabled = controlsBusy;
+  elements.changePassphraseBtn.disabled = controlsBusy || !isUnlocked();
+  elements.currentPassphraseInput.disabled = controlsBusy || !isUnlocked();
+  elements.newPassphraseInput.disabled = controlsBusy || !isUnlocked();
+  elements.newPassphraseConfirmInput.disabled = controlsBusy || !isUnlocked();
   elements.autoLockSelect.value = String(state.crypto.autoLockMs);
 }
 
@@ -519,16 +553,34 @@ function lockCryptoSession(reasonText = "Locked") {
   state.crypto.key = null;
   state.crypto.keyParams = null;
   state.crypto.unlocking = false;
+  state.crypto.rotating = false;
   state.crypto.statusText = reasonText;
   elements.passphraseInput.value = "";
   elements.passphraseConfirmInput.value = "";
+  clearChangePassphraseInputs();
   clearIdleAutoLockTimer();
   resetSessionNotes();
   render();
 }
 
+async function deriveAndVerifyPassphrase(passphrase, keyCheckRecord) {
+  if (!isValidKeyCheckRecord(keyCheckRecord)) {
+    throw new Error("Passphrase record missing");
+  }
+
+  const derived = await window.JournalCrypto.deriveSessionKey(passphrase, {
+    saltB64: keyCheckRecord.saltB64,
+    iterations: keyCheckRecord.iterations,
+  });
+  const checkPlaintext = await window.JournalCrypto.decryptString(keyCheckRecord.check, derived.key);
+  if (checkPlaintext !== KEY_CHECK_SENTINEL) {
+    throw new Error("Wrong passphrase");
+  }
+  return derived;
+}
+
 async function unlockCryptoSession() {
-  if (state.crypto.unlocking || isUnlocked()) {
+  if (state.crypto.unlocking || state.crypto.rotating || isUnlocked()) {
     return;
   }
 
@@ -580,22 +632,7 @@ async function unlockCryptoSession() {
       return;
     }
 
-    const keyCheckRecord = state.crypto.keyCheckRecord;
-    if (!isValidKeyCheckRecord(keyCheckRecord)) {
-      throw new Error("Passphrase record missing");
-    }
-
-    const unlockResult = await window.JournalCrypto.deriveSessionKey(passphrase, {
-      saltB64: keyCheckRecord.saltB64,
-      iterations: keyCheckRecord.iterations,
-    });
-    const checkPlaintext = await window.JournalCrypto.decryptString(
-      keyCheckRecord.check,
-      unlockResult.key
-    );
-    if (checkPlaintext !== KEY_CHECK_SENTINEL) {
-      throw new Error("Wrong passphrase");
-    }
+    const unlockResult = await deriveAndVerifyPassphrase(passphrase, state.crypto.keyCheckRecord);
 
     state.crypto.key = unlockResult.key;
     state.crypto.keyParams = unlockResult.params;
@@ -621,6 +658,102 @@ async function unlockCryptoSession() {
   } finally {
     state.crypto.unlocking = false;
     render();
+  }
+}
+
+async function rotatePassphrase() {
+  if (state.crypto.unlocking || state.crypto.rotating) {
+    return;
+  }
+  if (!state.crypto.hasPassphrase || !isUnlocked()) {
+    setChangePassphraseStatus("Unlock before changing passphrase.", true);
+    return;
+  }
+  if (!window.JournalCrypto) {
+    setChangePassphraseStatus("Crypto module unavailable.", true);
+    return;
+  }
+
+  const currentPassphrase = elements.currentPassphraseInput.value;
+  const newPassphrase = elements.newPassphraseInput.value;
+  const confirmNewPassphrase = elements.newPassphraseConfirmInput.value;
+
+  if (typeof currentPassphrase !== "string" || currentPassphrase.length < 8) {
+    setChangePassphraseStatus("Current passphrase is too short.", true);
+    return;
+  }
+  if (typeof newPassphrase !== "string" || newPassphrase.length < 8) {
+    setChangePassphraseStatus("New passphrase must be at least 8 characters.", true);
+    return;
+  }
+  if (newPassphrase !== confirmNewPassphrase) {
+    setChangePassphraseStatus("New passphrases do not match.", true);
+    return;
+  }
+  if (newPassphrase === currentPassphrase) {
+    setChangePassphraseStatus("New passphrase must differ from current.", true);
+    return;
+  }
+
+  state.crypto.rotating = true;
+  state.crypto.statusText = "Rotating key...";
+  renderCryptoState();
+
+  try {
+    flushEditorIntoSelectedNote();
+    const notesSnapshot = normalizeNotesArray(state.notes);
+    await deriveAndVerifyPassphrase(currentPassphrase, state.crypto.keyCheckRecord);
+
+    const nextKeyResult = await window.JournalCrypto.deriveSessionKey(newPassphrase);
+    const nextKeyCheck = {
+      version: 1,
+      saltB64: nextKeyResult.params.saltB64,
+      iterations: nextKeyResult.params.iterations,
+      check: await window.JournalCrypto.encryptString(KEY_CHECK_SENTINEL, nextKeyResult.key),
+    };
+    const nextEncryptedNotes = {
+      version: 1,
+      updatedAt: nowIso(),
+      payload: await window.JournalCrypto.encryptString(
+        JSON.stringify(notesSnapshot),
+        nextKeyResult.key
+      ),
+    };
+
+    const previousKeyCheckRaw = localStorage.getItem(KEY_CHECK_KEY);
+    const previousEncryptedNotesRaw = localStorage.getItem(ENCRYPTED_NOTES_KEY);
+
+    try {
+      localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(nextKeyCheck));
+      localStorage.setItem(ENCRYPTED_NOTES_KEY, JSON.stringify(nextEncryptedNotes));
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch (persistError) {
+      setOrRemoveLocalStorage(KEY_CHECK_KEY, previousKeyCheckRaw);
+      setOrRemoveLocalStorage(ENCRYPTED_NOTES_KEY, previousEncryptedNotesRaw);
+      throw persistError;
+    }
+
+    state.crypto.keyCheckRecord = nextKeyCheck;
+    state.crypto.key = nextKeyResult.key;
+    state.crypto.keyParams = nextKeyResult.params;
+    state.crypto.statusText = "Unlocked";
+    clearChangePassphraseInputs();
+    scheduleIdleAutoLock();
+    setChangePassphraseStatus("Passphrase changed and data re-encrypted.");
+    setBackupStatus("Backup recommended after passphrase rotation.");
+  } catch (error) {
+    console.error(error);
+    if (error && error.message === "Wrong passphrase") {
+      setChangePassphraseStatus("Current passphrase is incorrect.", true);
+    } else if (error && error.message === "Passphrase record missing") {
+      setChangePassphraseStatus("Passphrase setup record missing.", true);
+    } else {
+      setChangePassphraseStatus("Passphrase rotation failed.", true);
+    }
+    state.crypto.statusText = "Unlocked";
+  } finally {
+    state.crypto.rotating = false;
+    renderCryptoState();
   }
 }
 
@@ -807,6 +940,10 @@ function wireEvents() {
     lockCryptoSession("Locked");
   });
 
+  elements.changePassphraseBtn.addEventListener("click", () => {
+    rotatePassphrase();
+  });
+
   elements.exportBackupBtn.addEventListener("click", () => {
     exportEncryptedBackup();
   });
@@ -829,6 +966,24 @@ function wireEvents() {
   elements.passphraseConfirmInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       unlockCryptoSession();
+    }
+  });
+
+  elements.currentPassphraseInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      rotatePassphrase();
+    }
+  });
+
+  elements.newPassphraseInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      rotatePassphrase();
+    }
+  });
+
+  elements.newPassphraseConfirmInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      rotatePassphrase();
     }
   });
 

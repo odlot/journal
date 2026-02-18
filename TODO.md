@@ -27,6 +27,7 @@
 - [x] Never store raw passphrase
 - [x] Keep key only in memory for active session
 - [x] Add lock/unlock flow with idle auto-lock
+- [x] Add passphrase change flow with key rotation
 
 ## 5) Cloud Sync (Encrypted Blobs Only)
 

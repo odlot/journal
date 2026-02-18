@@ -99,6 +99,37 @@
           Passphrase is never stored. Derived key stays in memory for this tab only.
         </p>
 
+        <h2 class="settings-subtitle">Passphrase Rotation</h2>
+        <div id="change-passphrase-wrap" class="hidden">
+          <label class="field-label" for="current-passphrase-input">Current passphrase</label>
+          <input
+            id="current-passphrase-input"
+            type="password"
+            placeholder="Enter current passphrase"
+            autocomplete="off"
+          />
+          <label class="field-label" for="new-passphrase-input">New passphrase</label>
+          <input
+            id="new-passphrase-input"
+            type="password"
+            placeholder="Enter new passphrase"
+            autocomplete="off"
+          />
+          <label class="field-label" for="new-passphrase-confirm-input"
+            >Confirm new passphrase</label
+          >
+          <input
+            id="new-passphrase-confirm-input"
+            type="password"
+            placeholder="Confirm new passphrase"
+            autocomplete="off"
+          />
+          <div class="inline-actions">
+            <button id="change-passphrase-btn" type="button">Change Passphrase</button>
+          </div>
+          <p id="change-passphrase-status" class="muted">No passphrase changes yet.</p>
+        </div>
+
         <h2 class="settings-subtitle">Encrypted Backup</h2>
         <div class="inline-actions">
           <button id="export-backup-btn" type="button">Export Backup</button>
