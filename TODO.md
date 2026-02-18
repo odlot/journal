@@ -50,7 +50,7 @@
 - [x] Sanitize markdown preview output
 - [x] Avoid third-party analytics and trackers
 - [x] Add clear local data wipe action
-- [ ] Add threat model notes in docs
+- [x] Add threat model notes in docs
 
 ## 8) UX (Keep It Simple)
 
@@ -68,6 +68,6 @@
 
 ## 10) Documentation
 
-- [ ] Add `ARCHITECTURE.md` with data flow and trust boundaries
-- [ ] Add `SECURITY.md` with crypto decisions and limitations
+- [x] Add `ARCHITECTURE.md` with data flow and trust boundaries
+- [x] Add `SECURITY.md` with crypto decisions and limitations
 - [x] Add quick start instructions in `README.md`

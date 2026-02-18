@@ -31,6 +31,8 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - `src/app.js`
 - `tests/crypto.test.js`
 - `tests/sync.test.js`
+- `ARCHITECTURE.md`
+- `SECURITY.md`
 - `SYNC_PROTOCOL.md`
 - `scripts/validate.sh`
 
