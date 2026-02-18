@@ -40,9 +40,9 @@
 
 ## 6) Conflict Handling
 
-- [ ] Detect conflicts using `updatedAt` and revision id
-- [ ] Start with simple strategy: keep both copies
-- [ ] Show conflict resolution UI for merge/replace
+- [x] Detect conflicts using `updatedAt` and revision id
+- [x] Start with simple strategy: keep both copies
+- [x] Show conflict resolution UI for merge/replace
 
 ## 7) Privacy and Security Hardening
 

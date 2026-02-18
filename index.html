@@ -153,6 +153,13 @@
         />
         <button id="sync-now-btn" type="button" disabled>Sync Now</button>
         <p id="sync-status" class="muted">Sync not configured.</p>
+        <div id="sync-conflict-wrap" class="hidden">
+          <p id="sync-conflict-text" class="muted error">Conflict detected.</p>
+          <div class="inline-actions">
+            <button id="sync-use-local-btn" type="button">Use Local Merged</button>
+            <button id="sync-use-server-btn" type="button">Use Server</button>
+          </div>
+        </div>
       </section>
     </div>
 
