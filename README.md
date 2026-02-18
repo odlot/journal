@@ -13,6 +13,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - First-time passphrase setup prompt
 - Unlock verifies passphrase with a persisted encrypted key-check record
 - In-memory encryption session unlock/lock with idle auto-lock timer
+- Passphrase rotation flow re-encrypts encrypted notes with a new key
 - Locked state hides note content and disables editing until unlock
 - Notes are stored encrypted at rest and loaded only after unlock
 - Encrypted JSON backup export/import from Settings
