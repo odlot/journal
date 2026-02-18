@@ -91,4 +91,4 @@ jobs:
           fetch-depth: 1
 
       - name: Lint workflow files
-        uses: rhysd/actionlint@v1
+        uses: docker://rhysd/actionlint:latest
