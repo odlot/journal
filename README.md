@@ -17,6 +17,18 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - Notes are stored encrypted at rest and loaded only after unlock
 - Encrypted JSON backup export/import from Settings
 
+## Structure
+
+- `index.html`
+- `src/styles.css`
+- `src/crypto.js`
+- `src/app.js`
+- `scripts/validate.sh`
+
 ## Run
 
 Open `index.html` in a browser.
+
+## Validate
+
+Run `./scripts/validate.sh` locally (same checks used by CI).

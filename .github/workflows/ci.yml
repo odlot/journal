@@ -21,15 +21,5 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Verify required files
-        run: |
-          test -f index.html
-          test -f styles.css
-          test -f app.js
-          test -f crypto.js
-          test -f README.md
-
-      - name: Check JavaScript syntax
-        run: |
-          node --check app.js
-          node --check crypto.js
+      - name: Validate
+        run: ./scripts/validate.sh
