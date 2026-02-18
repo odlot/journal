@@ -2,7 +2,7 @@
 
 ## 1) Project Setup
 
-- [x] Create `index.html`, `styles.css`, and `app.js`
+- [x] Create `index.html`, `src/styles.css`, and `src/app.js`
 - [x] Keep everything framework-free (plain HTML/CSS/JS)
 - [x] Add a minimal layout: note list, editor, preview, sync/settings panel
 
