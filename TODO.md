@@ -15,14 +15,15 @@
 
 ## 3) Local-First Storage
 
-- [ ] Store notes in IndexedDB (fallback: `localStorage`)
-- [ ] Define note schema: `id`, `title`, `content`, `updatedAt`, `deleted`
+- [x] Store notes in IndexedDB (fallback: `localStorage`)
+- [x] Define note schema: `id`, `title`, `content`, `updatedAt`, `deleted`
 - [x] Build CRUD operations for notes
 - [x] Add local export/import as encrypted JSON backup
 
 ## 4) End-to-End Encryption
 
-- [ ] Use Web Crypto API (AES-GCM) for note encryption at rest and in transit
+- [x] Use Web Crypto API (AES-GCM) for note encryption at rest
+- [ ] Use Web Crypto API (AES-GCM) for note encryption in transit (sync path)
 - [x] Derive key from passphrase (PBKDF2 with salt and high iteration count)
 - [x] Never store raw passphrase
 - [x] Keep key only in memory for active session
@@ -45,17 +46,17 @@
 
 ## 7) Privacy and Security Hardening
 
-- [ ] Add strict Content Security Policy (no inline scripts)
-- [ ] Sanitize markdown preview output
-- [ ] Avoid third-party analytics and trackers
+- [x] Add strict Content Security Policy (no inline scripts)
+- [x] Sanitize markdown preview output
+- [x] Avoid third-party analytics and trackers
 - [ ] Add clear local data wipe action
 - [ ] Add threat model notes in docs
 
 ## 8) UX (Keep It Simple)
 
 - [ ] Keyboard shortcuts: new note, save, search
-- [ ] Fast search by title/content
-- [ ] Mobile-friendly responsive layout
+- [x] Fast search by title/content
+- [x] Mobile-friendly responsive layout
 - [ ] Light/dark theme toggle (local preference only)
 
 ## 9) Testing and Verification
@@ -69,4 +70,4 @@
 
 - [ ] Add `ARCHITECTURE.md` with data flow and trust boundaries
 - [ ] Add `SECURITY.md` with crypto decisions and limitations
-- [ ] Add quick start instructions in `README.md`
+- [x] Add quick start instructions in `README.md`

@@ -1,7 +1,10 @@
 "use strict";
 
-const ENCRYPTED_NOTES_KEY = "journal.notes.encrypted.v1";
-const LEGACY_STORAGE_KEY = "journal.notes.v1";
+const ENCRYPTED_NOTES_FALLBACK_KEY = "journal.notes.encrypted.v2";
+const NOTES_DB_NAME = "journal.notes.db.v1";
+const NOTES_DB_VERSION = 1;
+const NOTES_DB_STORE = "records";
+const ENCRYPTED_NOTES_RECORD_ID = "encrypted-notes";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
 const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
@@ -60,6 +63,154 @@ const state = {
     idleTimerId: null,
   },
 };
+
+function wrapIdbRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("IndexedDB request failed"));
+  });
+}
+
+function wrapIdbTransaction(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error || new Error("IndexedDB transaction aborted"));
+    transaction.onerror = () =>
+      reject(transaction.error || new Error("IndexedDB transaction failed"));
+  });
+}
+
+function openNotesDatabase() {
+  if (!("indexedDB" in window)) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(NOTES_DB_NAME, NOTES_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(NOTES_DB_STORE)) {
+        database.createObjectStore(NOTES_DB_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Failed to open IndexedDB"));
+  });
+}
+
+function createEncryptedNotesStorage() {
+  let backend = "indexedDB";
+  let dbPromise = null;
+
+  function useLocalStorageFallback(error) {
+    if (backend !== "localStorage") {
+      console.warn("Falling back to localStorage for notes persistence.", error);
+      backend = "localStorage";
+    }
+  }
+
+  async function getDatabase() {
+    if (backend === "localStorage") {
+      return null;
+    }
+    if (!dbPromise) {
+      dbPromise = openNotesDatabase().catch((error) => {
+        useLocalStorageFallback(error);
+        return null;
+      });
+    }
+    const database = await dbPromise;
+    if (!database) {
+      backend = "localStorage";
+    }
+    return database;
+  }
+
+  async function readFromIndexedDb() {
+    const database = await getDatabase();
+    if (!database) {
+      return null;
+    }
+    const transaction = database.transaction(NOTES_DB_STORE, "readonly");
+    const store = transaction.objectStore(NOTES_DB_STORE);
+    const record = await wrapIdbRequest(store.get(ENCRYPTED_NOTES_RECORD_ID));
+    return record && typeof record === "object" ? record.value || null : null;
+  }
+
+  async function writeToIndexedDb(value) {
+    const database = await getDatabase();
+    if (!database) {
+      return false;
+    }
+    const transaction = database.transaction(NOTES_DB_STORE, "readwrite");
+    const store = transaction.objectStore(NOTES_DB_STORE);
+    await wrapIdbRequest(
+      store.put({
+        id: ENCRYPTED_NOTES_RECORD_ID,
+        value,
+      })
+    );
+    await wrapIdbTransaction(transaction);
+    return true;
+  }
+
+  async function clearIndexedDbRecord() {
+    const database = await getDatabase();
+    if (!database) {
+      return false;
+    }
+    const transaction = database.transaction(NOTES_DB_STORE, "readwrite");
+    const store = transaction.objectStore(NOTES_DB_STORE);
+    await wrapIdbRequest(store.delete(ENCRYPTED_NOTES_RECORD_ID));
+    await wrapIdbTransaction(transaction);
+    return true;
+  }
+
+  return {
+    async getEncryptedNotesRecord() {
+      if (backend === "indexedDB") {
+        try {
+          const value = await readFromIndexedDb();
+          return isValidEncryptedNotesRecord(value) ? value : null;
+        } catch (error) {
+          useLocalStorageFallback(error);
+        }
+      }
+
+      const fallbackRaw = localStorage.getItem(ENCRYPTED_NOTES_FALLBACK_KEY);
+      const fallbackParsed = safeJsonParse(fallbackRaw, null);
+      return isValidEncryptedNotesRecord(fallbackParsed) ? fallbackParsed : null;
+    },
+
+    async setEncryptedNotesRecord(record) {
+      if (backend === "indexedDB") {
+        try {
+          const wroteToIndexedDb = await writeToIndexedDb(record);
+          if (wroteToIndexedDb) {
+            localStorage.removeItem(ENCRYPTED_NOTES_FALLBACK_KEY);
+            return;
+          }
+        } catch (error) {
+          useLocalStorageFallback(error);
+        }
+      }
+      localStorage.setItem(ENCRYPTED_NOTES_FALLBACK_KEY, JSON.stringify(record));
+    },
+
+    async clearEncryptedNotesRecord() {
+      if (backend === "indexedDB") {
+        try {
+          await clearIndexedDbRecord();
+        } catch (error) {
+          useLocalStorageFallback(error);
+        }
+      }
+      localStorage.removeItem(ENCRYPTED_NOTES_FALLBACK_KEY);
+    },
+  };
+}
+
+const encryptedNotesStorage = createEncryptedNotesStorage();
 
 function uid() {
   return crypto.randomUUID();
@@ -144,6 +295,7 @@ function normalizeNote(rawNote) {
     title: String(rawNote.title || ""),
     content: String(rawNote.content || ""),
     updatedAt: String(rawNote.updatedAt || nowIso()),
+    deleted: Boolean(rawNote.deleted),
   };
 }
 
@@ -152,6 +304,10 @@ function normalizeNotesArray(rawNotes) {
     return [];
   }
   return rawNotes.filter((n) => n && typeof n === "object").map(normalizeNote);
+}
+
+function getActiveNotes() {
+  return state.notes.filter((note) => !note.deleted);
 }
 
 function isValidEncryptedNotesRecord(record) {
@@ -163,12 +319,6 @@ function isValidEncryptedNotesRecord(record) {
     typeof record.payload.ivB64 === "string" &&
     typeof record.payload.ciphertextB64 === "string"
   );
-}
-
-function loadEncryptedNotesRecord() {
-  const raw = localStorage.getItem(ENCRYPTED_NOTES_KEY);
-  const parsed = safeJsonParse(raw, null);
-  return isValidEncryptedNotesRecord(parsed) ? parsed : null;
 }
 
 function isValidBackupPayload(payload) {
@@ -197,12 +347,6 @@ function clearChangePassphraseInputs() {
   elements.newPassphraseConfirmInput.value = "";
 }
 
-function loadLegacyPlaintextNotes() {
-  const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
-  const parsed = safeJsonParse(raw, []);
-  return normalizeNotesArray(parsed);
-}
-
 async function persistNotes() {
   if (!isUnlocked() || !state.crypto.key || !window.JournalCrypto) {
     return;
@@ -214,8 +358,7 @@ async function persistNotes() {
     updatedAt: nowIso(),
     payload,
   };
-  localStorage.setItem(ENCRYPTED_NOTES_KEY, JSON.stringify(record));
-  localStorage.removeItem(LEGACY_STORAGE_KEY);
+  await encryptedNotesStorage.setEncryptedNotesRecord(record);
 }
 
 function persistNotesSafe() {
@@ -238,7 +381,7 @@ async function loadNotesForActiveSession() {
     return;
   }
 
-  const encryptedRecord = loadEncryptedNotesRecord();
+  const encryptedRecord = await encryptedNotesStorage.getEncryptedNotesRecord();
   if (encryptedRecord) {
     let plaintextNotes = "";
     try {
@@ -255,22 +398,25 @@ async function loadNotesForActiveSession() {
     }
     state.notes = normalizeNotesArray(parsedNotes);
   } else {
-    const legacyNotes = loadLegacyPlaintextNotes();
-    state.notes = legacyNotes;
-    await persistNotes();
+    state.notes = [];
   }
 
-  if (state.notes.length === 0) {
-    state.notes = [normalizeNote({ title: "Untitled", content: "" })];
-    state.selectedId = state.notes[0].id;
+  const activeNotes = getActiveNotes();
+  if (activeNotes.length === 0) {
+    const initialNote = normalizeNote({ title: "Untitled", content: "", deleted: false });
+    state.notes = [initialNote];
+    state.selectedId = initialNote.id;
     await persistNotes();
-  } else if (!state.selectedId || !state.notes.some((note) => note.id === state.selectedId)) {
-    state.selectedId = state.notes[0].id;
+  } else if (
+    !state.selectedId ||
+    !activeNotes.some((note) => note.id === state.selectedId)
+  ) {
+    state.selectedId = activeNotes[0].id;
   }
 }
 
 function createNote() {
-  const note = normalizeNote({ title: "Untitled", content: "" });
+  const note = normalizeNote({ title: "Untitled", content: "", deleted: false });
   state.notes.unshift(note);
   state.selectedId = note.id;
   persistNotesSafe();
@@ -278,7 +424,7 @@ function createNote() {
 }
 
 function getSelectedNote() {
-  return state.notes.find((note) => note.id === state.selectedId) || null;
+  return state.notes.find((note) => note.id === state.selectedId && !note.deleted) || null;
 }
 
 function flushEditorIntoSelectedNote() {
@@ -295,11 +441,19 @@ function flushEditorIntoSelectedNote() {
 }
 
 function deleteSelectedNote() {
-  if (state.notes.length <= 1) {
+  const activeNotes = getActiveNotes();
+  if (activeNotes.length <= 1) {
     return;
   }
-  state.notes = state.notes.filter((note) => note.id !== state.selectedId);
-  state.selectedId = state.notes[0].id;
+  const noteToDelete = getSelectedNote();
+  if (!noteToDelete) {
+    return;
+  }
+
+  noteToDelete.deleted = true;
+  noteToDelete.updatedAt = nowIso();
+  const nextNote = getActiveNotes().find((note) => note.id !== noteToDelete.id) || null;
+  state.selectedId = nextNote ? nextNote.id : null;
   persistNotesSafe();
   render();
 }
@@ -408,13 +562,14 @@ function renderMarkdown(markdown) {
 
 function renderNoteList() {
   elements.noteList.innerHTML = "";
+  const activeNotes = getActiveNotes();
   const query = state.searchQuery.trim().toLowerCase();
   const filtered = query
-    ? state.notes.filter((note) => {
+    ? activeNotes.filter((note) => {
         const haystack = `${note.title}\n${note.content}`.toLowerCase();
         return haystack.includes(query);
       })
-    : state.notes;
+    : activeNotes;
 
   for (const note of filtered) {
     const item = document.createElement("li");
@@ -531,7 +686,7 @@ function render() {
   }
 
   renderCryptoState();
-  elements.deleteNoteBtn.disabled = locked || state.notes.length <= 1;
+  elements.deleteNoteBtn.disabled = locked || getActiveNotes().length <= 1;
 }
 
 function openSettings() {
@@ -721,15 +876,18 @@ async function rotatePassphrase() {
     };
 
     const previousKeyCheckRaw = localStorage.getItem(KEY_CHECK_KEY);
-    const previousEncryptedNotesRaw = localStorage.getItem(ENCRYPTED_NOTES_KEY);
+    const previousEncryptedNotesRecord = await encryptedNotesStorage.getEncryptedNotesRecord();
 
     try {
       localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(nextKeyCheck));
-      localStorage.setItem(ENCRYPTED_NOTES_KEY, JSON.stringify(nextEncryptedNotes));
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      await encryptedNotesStorage.setEncryptedNotesRecord(nextEncryptedNotes);
     } catch (persistError) {
       setOrRemoveLocalStorage(KEY_CHECK_KEY, previousKeyCheckRaw);
-      setOrRemoveLocalStorage(ENCRYPTED_NOTES_KEY, previousEncryptedNotesRaw);
+      if (previousEncryptedNotesRecord) {
+        await encryptedNotesStorage.setEncryptedNotesRecord(previousEncryptedNotesRecord);
+      } else {
+        await encryptedNotesStorage.clearEncryptedNotesRecord();
+      }
       throw persistError;
     }
 
@@ -775,7 +933,7 @@ async function exportEncryptedBackup() {
     }
 
     const keyCheckRecord = state.crypto.keyCheckRecord;
-    const encryptedNotesRecord = loadEncryptedNotesRecord();
+    const encryptedNotesRecord = await encryptedNotesStorage.getEncryptedNotesRecord();
     if (!isValidKeyCheckRecord(keyCheckRecord) || !isValidEncryptedNotesRecord(encryptedNotesRecord)) {
       setBackupStatus("No encrypted note data found to export.", true);
       return;
@@ -828,8 +986,7 @@ async function importEncryptedBackupFromFile(file) {
     }
 
     localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(parsed.keyCheck));
-    localStorage.setItem(ENCRYPTED_NOTES_KEY, JSON.stringify(parsed.encryptedNotes));
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    await encryptedNotesStorage.setEncryptedNotesRecord(parsed.encryptedNotes);
 
     state.crypto.keyCheckRecord = parsed.keyCheck;
     state.crypto.hasPassphrase = true;
