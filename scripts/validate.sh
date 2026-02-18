@@ -10,6 +10,7 @@ required_files=(
   "src/styles.css"
   "src/app.js"
   "src/crypto.js"
+  "src/sync.js"
 )
 
 for file in "${required_files[@]}"; do
@@ -18,9 +19,11 @@ done
 
 node --check src/app.js
 node --check src/crypto.js
+node --check src/sync.js
 
 grep -q 'href="src/styles.css"' index.html
 grep -q 'src="src/crypto.js"' index.html
+grep -q 'src="src/sync.js"' index.html
 grep -q 'src="src/app.js"' index.html
 
 echo "Validation passed."

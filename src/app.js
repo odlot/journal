@@ -7,7 +7,6 @@ const NOTES_DB_STORE = "records";
 const ENCRYPTED_NOTES_RECORD_ID = "encrypted-notes";
 const SYNC_ENDPOINT_KEY = "journal.sync.endpoint.v1";
 const SYNC_META_KEY = "journal.sync.meta.v1";
-const SYNC_PROTOCOL_VERSION = 1;
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
 const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
@@ -402,62 +401,41 @@ function isValidBackupPayload(payload) {
   );
 }
 
-function isValidSyncEncryptedState(payload) {
-  return (
-    payload &&
-    typeof payload === "object" &&
-    isValidKeyCheckRecord(payload.keyCheck) &&
-    isValidEncryptedNotesRecord(payload.encryptedNotes)
-  );
+function hasSyncModule() {
+  return Boolean(window.JournalSync);
 }
 
-function isValidSyncResponsePayload(payload) {
-  return (
-    payload &&
-    typeof payload === "object" &&
-    payload.protocolVersion === SYNC_PROTOCOL_VERSION &&
-    (payload.serverRevision === null || typeof payload.serverRevision === "string") &&
-    (payload.serverEncryptedState === null || isValidSyncEncryptedState(payload.serverEncryptedState)) &&
-    (payload.conflict === null || typeof payload.conflict === "object" || payload.conflict === undefined)
-  );
-}
-
-function isValidSyncEndpoint(endpoint) {
-  try {
-    const url = new URL(endpoint);
-    return url.protocol === "https:" || url.protocol === "http:";
-  } catch {
-    return false;
-  }
-}
-
-function createRestSyncAdapter(endpoint) {
+function getSyncValidators() {
   return {
-    async sync(payload) {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Sync request failed (${response.status})`);
-      }
-
-      const text = await response.text();
-      const parsed = safeJsonParse(text, null);
-      if (!isValidSyncResponsePayload(parsed)) {
-        throw new Error("Invalid sync response");
-      }
-      return parsed;
-    },
+    isValidKeyCheckRecord,
+    isValidEncryptedNotesRecord,
   };
 }
 
+function isValidSyncEncryptedState(payload) {
+  if (!hasSyncModule()) {
+    return false;
+  }
+  return window.JournalSync.isValidEncryptedState(payload, getSyncValidators());
+}
+
+function isValidSyncEndpoint(endpoint) {
+  if (!hasSyncModule()) {
+    return false;
+  }
+  return window.JournalSync.isValidEndpoint(endpoint);
+}
+
 function createSyncAdapter(endpoint) {
-  return createRestSyncAdapter(endpoint);
+  if (!hasSyncModule()) {
+    throw new Error("Sync module unavailable");
+  }
+
+  return window.JournalSync.createRestAdapter({
+    endpoint,
+    parseJson: (raw) => safeJsonParse(raw, null),
+    validators: getSyncValidators(),
+  });
 }
 
 function setBackupStatus(message, isError = false) {
@@ -477,6 +455,9 @@ function clearChangePassphraseInputs() {
 }
 
 function syncSummaryText() {
+  if (!hasSyncModule()) {
+    return "Sync module unavailable.";
+  }
   if (!state.sync.endpoint) {
     return "Sync not configured.";
   }
@@ -490,17 +471,17 @@ function syncSummaryText() {
 }
 
 function buildSyncRequestPayload(localEncryptedState) {
-  return {
-    protocolVersion: SYNC_PROTOCOL_VERSION,
-    action: "sync",
-    client: {
-      deviceId: state.sync.deviceId,
-      knownServerRevision: state.sync.knownServerRevision,
-      localRevision: localEncryptedState.encryptedNotes.revisionId,
-      sentAt: nowIso(),
-      encryptedState: localEncryptedState,
-    },
-  };
+  if (!hasSyncModule()) {
+    throw new Error("Sync module unavailable");
+  }
+
+  return window.JournalSync.buildSyncRequest({
+    deviceId: state.sync.deviceId,
+    knownServerRevision: state.sync.knownServerRevision,
+    localRevision: localEncryptedState.encryptedNotes.revisionId,
+    sentAt: nowIso(),
+    encryptedState: localEncryptedState,
+  });
 }
 
 async function buildLocalSyncState() {
@@ -543,6 +524,11 @@ async function applySyncedServerState(serverEncryptedState) {
 
 async function syncNow() {
   if (state.sync.busy) {
+    return;
+  }
+  if (!hasSyncModule()) {
+    setSyncStatus("Sync module unavailable.", true);
+    renderSyncState();
     return;
   }
 
