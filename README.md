@@ -17,6 +17,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - Locked state hides note content and disables editing until unlock
 - Notes are stored encrypted at rest and loaded only after unlock
 - Encrypted JSON backup export/import from Settings
+- Manual cloud sync with REST adapter and encrypted payload-only protocol
 
 ## Structure
 
@@ -24,6 +25,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - `src/styles.css`
 - `src/crypto.js`
 - `src/app.js`
+- `SYNC_PROTOCOL.md`
 - `scripts/validate.sh`
 
 ## Run
