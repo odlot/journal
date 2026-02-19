@@ -55,6 +55,8 @@
 ## 8) UX (Keep It Simple)
 
 - [ ] Keyboard shortcuts: new note, save, search
+- [ ] Collapsible sidebar
+- [ ] Toggle markdown preview visibility
 - [x] Fast search by title/content
 - [x] Mobile-friendly responsive layout
 - [ ] Light/dark theme toggle (local preference only)
@@ -64,7 +66,7 @@
 - [x] Unit test crypto helpers (key derivation/encrypt/decrypt)
 - [ ] Test offline usage and recovery
 - [ ] Test sync with network failures/retries
-- [ ] Validate no plaintext leaves browser during sync
+- [x] Validate no plaintext leaves browser during sync
 
 ## 10) Documentation
 
