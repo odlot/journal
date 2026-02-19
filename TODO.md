@@ -55,6 +55,8 @@
 ## 8) UX (Keep It Simple)
 
 - [ ] Keyboard shortcuts: new note, save, search
+- [ ] Collapsible sidebar
+- [ ] Toggle markdown preview visibility
 - [x] Fast search by title/content
 - [x] Mobile-friendly responsive layout
 - [ ] Light/dark theme toggle (local preference only)
