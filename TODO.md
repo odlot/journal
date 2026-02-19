@@ -56,7 +56,7 @@
 
 - [ ] Keyboard shortcuts: new note, save, search
 - [ ] Collapsible sidebar
-- [ ] Toggle markdown preview visibility
+- [x] Toggle markdown preview visibility
 - [x] Fast search by title/content
 - [x] Mobile-friendly responsive layout
 - [ ] Light/dark theme toggle (local preference only)
