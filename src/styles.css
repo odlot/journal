@@ -294,9 +294,32 @@ body.sidebar-collapsed .notes-panel {
   display: none;
 }
 
+body.preview-hidden .layout {
+  grid-template-columns: 260px minmax(300px, 1fr);
+}
+
+body.preview-hidden .preview-panel {
+  display: none;
+}
+
+body.sidebar-collapsed.preview-hidden .layout {
+  grid-template-columns: minmax(300px, 1fr);
+}
 @media (max-width: 1200px) {
   .layout {
     grid-template-columns: 230px 1fr 1fr;
+  }
+
+  body.sidebar-collapsed .layout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  body.preview-hidden .layout {
+    grid-template-columns: 230px 1fr;
+  }
+
+  body.sidebar-collapsed.preview-hidden .layout {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -306,6 +329,7 @@ body.sidebar-collapsed .notes-panel {
   }
 
   body.sidebar-collapsed .layout {
+  body.preview-hidden .layout {
     grid-template-columns: 1fr;
   }
 

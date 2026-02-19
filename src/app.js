@@ -9,6 +9,7 @@ const SYNC_ENDPOINT_KEY = "journal.sync.endpoint.v1";
 const SYNC_META_KEY = "journal.sync.meta.v1";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
 const SIDEBAR_COLLAPSED_KEY = "journal.ui.sidebar_collapsed.v1";
+const PREVIEW_VISIBLE_KEY = "journal.ui.preview_visible.v1";
 const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
 const BACKUP_VERSION = 1;
@@ -60,6 +61,8 @@ const elements = {
   syncUseLocalBtn: document.getElementById("sync-use-local-btn"),
   syncUseServerBtn: document.getElementById("sync-use-server-btn"),
 };
+const togglePreviewBtn = document.getElementById("toggle-preview-btn");
+let previewVisible = true;
 
 const state = {
   notes: [],
@@ -293,6 +296,20 @@ function persistSidebarPreference() {
 function toggleSidebar() {
   state.ui.sidebarCollapsed = !state.ui.sidebarCollapsed;
   persistSidebarPreference();
+  render();
+}
+
+function loadPreviewPreference() {
+  previewVisible = localStorage.getItem(PREVIEW_VISIBLE_KEY) !== "0";
+}
+
+function persistPreviewPreference() {
+  localStorage.setItem(PREVIEW_VISIBLE_KEY, previewVisible ? "1" : "0");
+}
+
+function togglePreviewVisibility() {
+  previewVisible = !previewVisible;
+  persistPreviewPreference();
   render();
 }
 
@@ -1292,11 +1309,18 @@ function renderSidebarState() {
   elements.toggleSidebarBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
 }
 
+function renderPreviewState() {
+  document.body.classList.toggle("preview-hidden", !previewVisible);
+  togglePreviewBtn.textContent = previewVisible ? "Hide Preview" : "Show Preview";
+  togglePreviewBtn.setAttribute("aria-pressed", previewVisible ? "false" : "true");
+}
+
 function render() {
   const locked = !isUnlocked();
   const needsSetup = !state.crypto.hasPassphrase;
 
   renderSidebarState();
+  renderPreviewState();
   document.body.classList.toggle("app-locked", locked);
   elements.lockedOverlay.classList.toggle("hidden", !locked);
   elements.lockedOverlayMessage.textContent = needsSetup
@@ -1660,6 +1684,10 @@ function wireEvents() {
     toggleSidebar();
   });
 
+  togglePreviewBtn.addEventListener("click", () => {
+    togglePreviewVisibility();
+  });
+
   elements.newNoteBtn.addEventListener("click", () => {
     if (!isUnlocked()) {
       return;
@@ -1842,6 +1870,7 @@ function wireEvents() {
 function init() {
   loadAutoLockPreference();
   loadSidebarPreference();
+  loadPreviewPreference();
   loadKeyCheckRecord();
   loadSyncConfiguration();
   setSyncStatus(syncSummaryText());
