@@ -8,6 +8,7 @@ const ENCRYPTED_NOTES_RECORD_ID = "encrypted-notes";
 const SYNC_ENDPOINT_KEY = "journal.sync.endpoint.v1";
 const SYNC_META_KEY = "journal.sync.meta.v1";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
+const SIDEBAR_COLLAPSED_KEY = "journal.ui.sidebar_collapsed.v1";
 const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
 const BACKUP_VERSION = 1;
@@ -17,6 +18,7 @@ const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
 const LOCAL_DATA_KEYS = Object.freeze([KEY_CHECK_KEY, AUTO_LOCK_KEY, SYNC_ENDPOINT_KEY, SYNC_META_KEY]);
 
 const elements = {
+  toggleSidebarBtn: document.getElementById("toggle-sidebar-btn"),
   newNoteBtn: document.getElementById("new-note-btn"),
   deleteNoteBtn: document.getElementById("delete-note-btn"),
   openSettingsBtn: document.getElementById("open-settings-btn"),
@@ -63,6 +65,9 @@ const state = {
   notes: [],
   selectedId: null,
   searchQuery: "",
+  ui: {
+    sidebarCollapsed: false,
+  },
   crypto: {
     key: null,
     keyParams: null,
@@ -275,6 +280,20 @@ function loadAutoLockPreference() {
 
 function persistAutoLockPreference() {
   localStorage.setItem(AUTO_LOCK_KEY, String(state.crypto.autoLockMs));
+}
+
+function loadSidebarPreference() {
+  state.ui.sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+}
+
+function persistSidebarPreference() {
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, state.ui.sidebarCollapsed ? "1" : "0");
+}
+
+function toggleSidebar() {
+  state.ui.sidebarCollapsed = !state.ui.sidebarCollapsed;
+  persistSidebarPreference();
+  render();
 }
 
 function normalizeSyncEndpoint(value) {
@@ -1266,10 +1285,18 @@ function renderSyncState() {
   }
 }
 
+function renderSidebarState() {
+  const collapsed = state.ui.sidebarCollapsed;
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  elements.toggleSidebarBtn.textContent = collapsed ? "Show Sidebar" : "Hide Sidebar";
+  elements.toggleSidebarBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
 function render() {
   const locked = !isUnlocked();
   const needsSetup = !state.crypto.hasPassphrase;
 
+  renderSidebarState();
   document.body.classList.toggle("app-locked", locked);
   elements.lockedOverlay.classList.toggle("hidden", !locked);
   elements.lockedOverlayMessage.textContent = needsSetup
@@ -1629,6 +1656,10 @@ const saveEditorChanges = debounce(() => {
 }, AUTOSAVE_DELAY_MS);
 
 function wireEvents() {
+  elements.toggleSidebarBtn.addEventListener("click", () => {
+    toggleSidebar();
+  });
+
   elements.newNoteBtn.addEventListener("click", () => {
     if (!isUnlocked()) {
       return;
@@ -1810,6 +1841,7 @@ function wireEvents() {
 
 function init() {
   loadAutoLockPreference();
+  loadSidebarPreference();
   loadKeyCheckRecord();
   loadSyncConfiguration();
   setSyncStatus(syncSummaryText());

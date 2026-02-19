@@ -14,6 +14,14 @@
     <header class="topbar">
       <h1>Journal</h1>
       <div class="actions">
+        <button
+          id="toggle-sidebar-btn"
+          type="button"
+          aria-controls="notes-sidebar"
+          aria-expanded="true"
+        >
+          Hide Sidebar
+        </button>
         <button id="new-note-btn" type="button">New Note</button>
         <button id="delete-note-btn" type="button">Delete</button>
         <button id="open-settings-btn" type="button">Settings</button>
@@ -21,7 +29,7 @@
     </header>
 
     <main class="layout">
-      <aside class="panel notes-panel">
+      <aside id="notes-sidebar" class="panel notes-panel">
         <label class="field-label" for="search-input">Search</label>
         <input id="search-input" type="search" placeholder="Find notes..." />
         <ul id="note-list" class="note-list"></ul>

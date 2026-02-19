@@ -86,6 +86,10 @@ button:disabled {
   padding: 0.8rem;
 }
 
+.notes-panel {
+  display: block;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -282,6 +286,14 @@ textarea {
   user-select: none;
 }
 
+body.sidebar-collapsed .layout {
+  grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr);
+}
+
+body.sidebar-collapsed .notes-panel {
+  display: none;
+}
+
 @media (max-width: 1200px) {
   .layout {
     grid-template-columns: 230px 1fr 1fr;
@@ -290,6 +302,10 @@ textarea {
 
 @media (max-width: 860px) {
   .layout {
+    grid-template-columns: 1fr;
+  }
+
+  body.sidebar-collapsed .layout {
     grid-template-columns: 1fr;
   }
 
