@@ -1,10 +1,12 @@
 "use strict";
 
 const ENCRYPTED_NOTES_FALLBACK_KEY = "journal.notes.encrypted.v2";
+const ENCRYPTED_HISTORY_FALLBACK_KEY = "journal.history.encrypted.v1";
 const NOTES_DB_NAME = "journal.notes.db.v1";
 const NOTES_DB_VERSION = 1;
 const NOTES_DB_STORE = "records";
 const ENCRYPTED_NOTES_RECORD_ID = "encrypted-notes";
+const ENCRYPTED_HISTORY_RECORD_ID = "encrypted-history";
 const SYNC_ENDPOINT_KEY = "journal.sync.endpoint.v1";
 const SYNC_META_KEY = "journal.sync.meta.v1";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
@@ -17,6 +19,7 @@ const AUTOSAVE_DELAY_MS = 250;
 const DEFAULT_AUTO_LOCK_MS = 300000;
 const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
 const LOCAL_DATA_KEYS = Object.freeze([KEY_CHECK_KEY, AUTO_LOCK_KEY, SYNC_ENDPOINT_KEY, SYNC_META_KEY]);
+const HISTORY_ACTIONS = Object.freeze(new Set(["create", "edit", "delete", "restore"]));
 
 const elements = {
   toggleSidebarBtn: document.getElementById("toggle-sidebar-btn"),
@@ -71,6 +74,7 @@ let previewVisible = true;
 
 const state = {
   notes: [],
+  history: [],
   selectedId: null,
   searchQuery: "",
   ui: {
@@ -247,6 +251,120 @@ function createEncryptedNotesStorage() {
 }
 
 const encryptedNotesStorage = createEncryptedNotesStorage();
+
+function createEncryptedHistoryStorage() {
+  let backend = "indexedDB";
+  let dbPromise = null;
+
+  function useLocalStorageFallback(error) {
+    if (backend !== "localStorage") {
+      console.warn("Falling back to localStorage for history persistence.", error);
+      backend = "localStorage";
+    }
+  }
+
+  async function getDatabase() {
+    if (backend === "localStorage") {
+      return null;
+    }
+    if (!dbPromise) {
+      dbPromise = openNotesDatabase().catch((error) => {
+        useLocalStorageFallback(error);
+        return null;
+      });
+    }
+    const database = await dbPromise;
+    if (!database) {
+      backend = "localStorage";
+    }
+    return database;
+  }
+
+  async function readFromIndexedDb() {
+    const database = await getDatabase();
+    if (!database) {
+      return null;
+    }
+    const transaction = database.transaction(NOTES_DB_STORE, "readonly");
+    const store = transaction.objectStore(NOTES_DB_STORE);
+    const record = await wrapIdbRequest(store.get(ENCRYPTED_HISTORY_RECORD_ID));
+    return record && typeof record === "object" ? record.value || null : null;
+  }
+
+  async function writeToIndexedDb(value) {
+    const database = await getDatabase();
+    if (!database) {
+      return false;
+    }
+    const transaction = database.transaction(NOTES_DB_STORE, "readwrite");
+    const store = transaction.objectStore(NOTES_DB_STORE);
+    await wrapIdbRequest(
+      store.put({
+        id: ENCRYPTED_HISTORY_RECORD_ID,
+        value,
+      })
+    );
+    await wrapIdbTransaction(transaction);
+    return true;
+  }
+
+  async function clearIndexedDbRecord() {
+    const database = await getDatabase();
+    if (!database) {
+      return false;
+    }
+    const transaction = database.transaction(NOTES_DB_STORE, "readwrite");
+    const store = transaction.objectStore(NOTES_DB_STORE);
+    await wrapIdbRequest(store.delete(ENCRYPTED_HISTORY_RECORD_ID));
+    await wrapIdbTransaction(transaction);
+    return true;
+  }
+
+  return {
+    async getEncryptedHistoryRecord() {
+      if (backend === "indexedDB") {
+        try {
+          const value = await readFromIndexedDb();
+          return isValidEncryptedHistoryRecord(value) ? value : null;
+        } catch (error) {
+          useLocalStorageFallback(error);
+        }
+      }
+
+      const fallbackRaw = localStorage.getItem(ENCRYPTED_HISTORY_FALLBACK_KEY);
+      const fallbackParsed = safeJsonParse(fallbackRaw, null);
+      return isValidEncryptedHistoryRecord(fallbackParsed) ? fallbackParsed : null;
+    },
+
+    async setEncryptedHistoryRecord(record) {
+      if (backend === "indexedDB") {
+        try {
+          const wroteToIndexedDb = await writeToIndexedDb(record);
+          if (wroteToIndexedDb) {
+            localStorage.removeItem(ENCRYPTED_HISTORY_FALLBACK_KEY);
+            return;
+          }
+        } catch (error) {
+          useLocalStorageFallback(error);
+        }
+      }
+      localStorage.setItem(ENCRYPTED_HISTORY_FALLBACK_KEY, JSON.stringify(record));
+    },
+
+    async clearEncryptedHistoryRecord() {
+      if (backend === "indexedDB") {
+        try {
+          await clearIndexedDbRecord();
+        } catch (error) {
+          useLocalStorageFallback(error);
+        }
+      }
+      localStorage.removeItem(ENCRYPTED_HISTORY_FALLBACK_KEY);
+    },
+  };
+}
+
+const encryptedHistoryStorage = createEncryptedHistoryStorage();
 
 function uid() {
   return crypto.randomUUID();
@@ -476,11 +594,62 @@ function normalizeNotesArray(rawNotes) {
   return rawNotes.filter((n) => n && typeof n === "object").map(normalizeNote);
 }
 
+function isValidHistoryAction(action) {
+  return HISTORY_ACTIONS.has(action);
+}
+
+function isValidHistoryCommit(rawCommit) {
+  return (
+    rawCommit &&
+    typeof rawCommit === "object" &&
+    typeof rawCommit.commitId === "string" &&
+    rawCommit.commitId.length > 0 &&
+    typeof rawCommit.noteId === "string" &&
+    rawCommit.noteId.length > 0 &&
+    (rawCommit.parentCommitId === null || typeof rawCommit.parentCommitId === "string") &&
+    isValidHistoryAction(rawCommit.action) &&
+    typeof rawCommit.createdAt === "string" &&
+    rawCommit.note &&
+    typeof rawCommit.note === "object"
+  );
+}
+
+function normalizeHistoryCommits(rawCommits) {
+  if (!Array.isArray(rawCommits)) {
+    return [];
+  }
+
+  return rawCommits
+    .filter(isValidHistoryCommit)
+    .map((rawCommit) => ({
+      commitId: String(rawCommit.commitId),
+      noteId: String(rawCommit.noteId),
+      parentCommitId:
+        rawCommit.parentCommitId === null ? null : String(rawCommit.parentCommitId),
+      action: rawCommit.action,
+      createdAt: String(rawCommit.createdAt),
+      note: normalizeNote(rawCommit.note),
+    }));
+}
+
 function getActiveNotes() {
   return state.notes.filter((note) => !note.deleted);
 }
 
 function isValidEncryptedNotesRecord(record) {
+  return (
+    record &&
+    typeof record === "object" &&
+    typeof record.revisionId === "string" &&
+    record.revisionId.length > 0 &&
+    record.payload &&
+    typeof record.payload === "object" &&
+    typeof record.payload.ivB64 === "string" &&
+    typeof record.payload.ciphertextB64 === "string"
+  );
+}
+
+function isValidEncryptedHistoryRecord(record) {
   return (
     record &&
     typeof record === "object" &&
@@ -674,9 +843,31 @@ async function decryptEncryptedNotesRecord(record, key) {
   return normalizeNotesArray(parsed);
 }
 
+async function decryptEncryptedHistoryRecord(record, key) {
+  const plaintext = await window.JournalCrypto.decryptString(record.payload, key);
+  const parsed = safeJsonParse(plaintext, []);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return normalizeHistoryCommits(parsed);
+}
+
 async function encryptNotesSnapshot(notes, key) {
   const payload = await window.JournalCrypto.encryptString(
     JSON.stringify(normalizeNotesArray(notes)),
+    key
+  );
+  return {
+    version: 1,
+    revisionId: newRevisionId(),
+    updatedAt: nowIso(),
+    payload,
+  };
+}
+
+async function encryptHistorySnapshot(historyCommits, key) {
+  const payload = await window.JournalCrypto.encryptString(
+    JSON.stringify(normalizeHistoryCommits(historyCommits)),
     key
   );
   return {
@@ -732,6 +923,7 @@ async function wipeLocalData() {
   try {
     clearIdleAutoLockTimer();
     await encryptedNotesStorage.clearEncryptedNotesRecord();
+    await encryptedHistoryStorage.clearEncryptedHistoryRecord();
     removeStoredLocalDataKeys();
 
     state.crypto.key = null;
@@ -754,6 +946,7 @@ async function wipeLocalData() {
     setSyncStatus(syncSummaryText());
 
     resetSessionNotes();
+    resetSessionHistory();
     setWipeLocalDataStatus("Local data wiped. Set a new passphrase to start.");
     render();
     openSettings();
@@ -1034,6 +1227,71 @@ function persistNotesSafe() {
   });
 }
 
+async function persistHistory() {
+  if (!isUnlocked() || !state.crypto.key || !window.JournalCrypto) {
+    return;
+  }
+  const record = await encryptHistorySnapshot(state.history, state.crypto.key);
+  await encryptedHistoryStorage.setEncryptedHistoryRecord(record);
+}
+
+function persistHistorySafe() {
+  persistHistory().catch((error) => {
+    console.error("Failed to persist local history.", error);
+  });
+}
+
+function resetSessionHistory() {
+  state.history = [];
+}
+
+async function loadHistoryForActiveSession() {
+  if (!isUnlocked() || !state.crypto.key || !window.JournalCrypto) {
+    return;
+  }
+
+  const encryptedRecord = await encryptedHistoryStorage.getEncryptedHistoryRecord();
+  if (!encryptedRecord) {
+    state.history = [];
+    return;
+  }
+
+  try {
+    state.history = await decryptEncryptedHistoryRecord(encryptedRecord, state.crypto.key);
+  } catch (error) {
+    console.warn("Encrypted history unreadable; starting with empty local history.", error);
+    state.history = [];
+  }
+}
+
+function latestCommitIdForNote(noteId) {
+  for (let i = state.history.length - 1; i >= 0; i -= 1) {
+    const commit = state.history[i];
+    if (commit.noteId === noteId) {
+      return commit.commitId;
+    }
+  }
+  return null;
+}
+
+function appendHistoryCommitSafe(action, noteSnapshot) {
+  if (!isUnlocked() || !state.crypto.key || !window.JournalCrypto || !isValidHistoryAction(action)) {
+    return;
+  }
+
+  const note = normalizeNote(noteSnapshot);
+  const commit = {
+    commitId: uid(),
+    noteId: note.id,
+    parentCommitId: latestCommitIdForNote(note.id),
+    action,
+    createdAt: nowIso(),
+    note,
+  };
+  state.history.push(commit);
+  persistHistorySafe();
+}
+
 function resetSessionNotes() {
   state.notes = [];
   state.selectedId = null;
@@ -1066,10 +1324,13 @@ async function loadNotesForActiveSession() {
     state.notes = [];
   }
 
+  await loadHistoryForActiveSession();
   const activeNotes = getActiveNotes();
   if (activeNotes.length === 0) {
     const initialNote = normalizeNote({ title: "Untitled", content: "", deleted: false });
     state.notes = [initialNote];
+    state.history = [];
+    appendHistoryCommitSafe("create", initialNote);
     state.selectedId = initialNote.id;
     await persistNotes();
   } else if (
@@ -1084,6 +1345,7 @@ function createNote() {
   const note = normalizeNote({ title: "Untitled", content: "", deleted: false });
   state.notes.unshift(note);
   state.selectedId = note.id;
+  appendHistoryCommitSafe("create", note);
   persistNotesSafe();
   render();
 }
@@ -1092,17 +1354,33 @@ function getSelectedNote() {
   return state.notes.find((note) => note.id === state.selectedId && !note.deleted) || null;
 }
 
-function flushEditorIntoSelectedNote() {
+function applyEditorInputToSelectedNote({ recordHistory = false } = {}) {
   if (!isUnlocked()) {
-    return;
+    return false;
   }
   const note = getSelectedNote();
   if (!note) {
-    return;
+    return false;
   }
-  note.title = elements.noteTitleInput.value.trim() || "Untitled";
-  note.content = elements.noteContentInput.value;
+
+  const nextTitle = elements.noteTitleInput.value.trim() || "Untitled";
+  const nextContent = elements.noteContentInput.value;
+  const didChange = note.title !== nextTitle || note.content !== nextContent;
+  if (!didChange) {
+    return false;
+  }
+
+  note.title = nextTitle;
+  note.content = nextContent;
   note.updatedAt = nowIso();
+  if (recordHistory) {
+    appendHistoryCommitSafe("edit", note);
+  }
+  return true;
+}
+
+function flushEditorIntoSelectedNote() {
+  applyEditorInputToSelectedNote({ recordHistory: true });
 }
 
 function deleteSelectedNote() {
@@ -1117,6 +1395,7 @@ function deleteSelectedNote() {
 
   noteToDelete.deleted = true;
   noteToDelete.updatedAt = nowIso();
+  appendHistoryCommitSafe("delete", noteToDelete);
   const nextNote = getActiveNotes().find((note) => note.id !== noteToDelete.id) || null;
   state.selectedId = nextNote ? nextNote.id : null;
   persistNotesSafe();
@@ -1462,6 +1741,7 @@ function lockCryptoSession(reasonText = "Locked") {
   clearChangePassphraseInputs();
   clearIdleAutoLockTimer();
   resetSessionNotes();
+  resetSessionHistory();
   render();
 }
 
@@ -1604,6 +1884,7 @@ async function rotatePassphrase() {
   try {
     flushEditorIntoSelectedNote();
     const notesSnapshot = normalizeNotesArray(state.notes);
+    const historySnapshot = normalizeHistoryCommits(state.history);
     await deriveAndVerifyPassphrase(currentPassphrase, state.crypto.keyCheckRecord);
 
     const nextKeyResult = await window.JournalCrypto.deriveSessionKey(newPassphrase);
@@ -1622,19 +1903,27 @@ async function rotatePassphrase() {
         nextKeyResult.key
       ),
     };
+    const nextEncryptedHistory = await encryptHistorySnapshot(historySnapshot, nextKeyResult.key);
 
     const previousKeyCheckRaw = localStorage.getItem(KEY_CHECK_KEY);
     const previousEncryptedNotesRecord = await encryptedNotesStorage.getEncryptedNotesRecord();
+    const previousEncryptedHistoryRecord = await encryptedHistoryStorage.getEncryptedHistoryRecord();
 
     try {
       localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(nextKeyCheck));
       await encryptedNotesStorage.setEncryptedNotesRecord(nextEncryptedNotes);
+      await encryptedHistoryStorage.setEncryptedHistoryRecord(nextEncryptedHistory);
     } catch (persistError) {
       setOrRemoveLocalStorage(KEY_CHECK_KEY, previousKeyCheckRaw);
       if (previousEncryptedNotesRecord) {
         await encryptedNotesStorage.setEncryptedNotesRecord(previousEncryptedNotesRecord);
       } else {
         await encryptedNotesStorage.clearEncryptedNotesRecord();
+      }
+      if (previousEncryptedHistoryRecord) {
+        await encryptedHistoryStorage.setEncryptedHistoryRecord(previousEncryptedHistoryRecord);
+      } else {
+        await encryptedHistoryStorage.clearEncryptedHistoryRecord();
       }
       throw persistError;
     }
@@ -1735,6 +2024,8 @@ async function importEncryptedBackupFromFile(file) {
 
     localStorage.setItem(KEY_CHECK_KEY, JSON.stringify(parsed.keyCheck));
     await encryptedNotesStorage.setEncryptedNotesRecord(parsed.encryptedNotes);
+    await encryptedHistoryStorage.clearEncryptedHistoryRecord();
+    state.history = [];
 
     state.crypto.keyCheckRecord = parsed.keyCheck;
     state.crypto.hasPassphrase = true;
@@ -1753,16 +2044,10 @@ async function importEncryptedBackupFromFile(file) {
 }
 
 const saveEditorChanges = debounce(() => {
-  if (!isUnlocked()) {
+  const didChange = applyEditorInputToSelectedNote({ recordHistory: true });
+  if (!didChange) {
     return;
   }
-  const note = getSelectedNote();
-  if (!note) {
-    return;
-  }
-  note.title = elements.noteTitleInput.value.trim() || "Untitled";
-  note.content = elements.noteContentInput.value;
-  note.updatedAt = nowIso();
   persistNotesSafe();
   render();
 }, AUTOSAVE_DELAY_MS);
