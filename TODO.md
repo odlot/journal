@@ -73,3 +73,9 @@
 - [x] Add `ARCHITECTURE.md` with data flow and trust boundaries
 - [x] Add `SECURITY.md` with crypto decisions and limitations
 - [x] Add quick start instructions in `README.md`
+
+## 11) History and Recovery
+
+- [x] Add local encrypted commit-history store and write path for create/edit/delete
+- [ ] Add restore UI from note history
+- [ ] Add deleted-notes recovery view
