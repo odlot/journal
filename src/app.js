@@ -313,6 +313,52 @@ function togglePreviewVisibility() {
   render();
 }
 
+function isShortcutModifierPressed(event) {
+  return Boolean(event.metaKey || event.ctrlKey);
+}
+
+function focusSearchInput() {
+  if (state.ui.sidebarCollapsed) {
+    state.ui.sidebarCollapsed = false;
+    persistSidebarPreference();
+    render();
+  }
+  elements.searchInput.focus();
+  elements.searchInput.select();
+}
+
+function handleKeyboardShortcut(event) {
+  if (
+    !isUnlocked() ||
+    event.defaultPrevented ||
+    !isShortcutModifierPressed(event) ||
+    elements.settingsView.getAttribute("aria-hidden") !== "true"
+  ) {
+    return;
+  }
+
+  const key = String(event.key || "").toLowerCase();
+
+  if (key === "s" && !event.shiftKey && !event.altKey) {
+    event.preventDefault();
+    flushEditorIntoSelectedNote();
+    persistNotesSafe();
+    render();
+    return;
+  }
+
+  if (key === "k" && !event.shiftKey && !event.altKey) {
+    event.preventDefault();
+    focusSearchInput();
+    return;
+  }
+
+  if (key === "n" && event.altKey && !event.shiftKey) {
+    event.preventDefault();
+    createNote();
+  }
+}
+
 function normalizeSyncEndpoint(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -1855,6 +1901,7 @@ function wireEvents() {
     if (event.key === "Escape" && !elements.settingsView.classList.contains("hidden")) {
       closeSettings();
     }
+    handleKeyboardShortcut(event);
     touchCryptoActivity();
   });
 
