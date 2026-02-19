@@ -78,4 +78,4 @@
 
 - [x] Add local encrypted commit-history store and write path for create/edit/delete
 - [x] Add restore UI from note history
-- [ ] Add deleted-notes recovery view
+- [x] Add deleted-notes recovery view

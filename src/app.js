@@ -26,6 +26,7 @@ const elements = {
   newNoteBtn: document.getElementById("new-note-btn"),
   deleteNoteBtn: document.getElementById("delete-note-btn"),
   openHistoryBtn: document.getElementById("open-history-btn"),
+  openDeletedNotesBtn: document.getElementById("open-deleted-notes-btn"),
   openSettingsBtn: document.getElementById("open-settings-btn"),
   openSettingsOverlayBtn: document.getElementById("open-settings-overlay-btn"),
   historyView: document.getElementById("history-view"),
@@ -34,6 +35,11 @@ const elements = {
   historyNoteTitle: document.getElementById("history-note-title"),
   historyList: document.getElementById("history-list"),
   historyStatus: document.getElementById("history-status"),
+  deletedNotesView: document.getElementById("deleted-notes-view"),
+  deletedNotesBackdrop: document.getElementById("deleted-notes-backdrop"),
+  deletedNotesCloseBtn: document.getElementById("deleted-notes-close-btn"),
+  deletedNotesList: document.getElementById("deleted-notes-list"),
+  deletedNotesStatus: document.getElementById("deleted-notes-status"),
   deleteConfirmView: document.getElementById("delete-confirm-view"),
   deleteConfirmBackdrop: document.getElementById("delete-confirm-backdrop"),
   deleteConfirmNoteTitle: document.getElementById("delete-confirm-note-title"),
@@ -464,7 +470,8 @@ function handleKeyboardShortcut(event) {
     !isShortcutModifierPressed(event) ||
     elements.settingsView.getAttribute("aria-hidden") !== "true" ||
     isDeleteConfirmOpen() ||
-    isHistoryOpen()
+    isHistoryOpen() ||
+    isDeletedNotesOpen()
   ) {
     return;
   }
@@ -1460,9 +1467,29 @@ function closeHistoryView({ restoreFocus = true } = {}) {
   }
 }
 
+function isDeletedNotesOpen() {
+  return elements.deletedNotesView.getAttribute("aria-hidden") === "false";
+}
+
+function closeDeletedNotesView({ restoreFocus = true } = {}) {
+  if (!isDeletedNotesOpen()) {
+    return;
+  }
+  elements.deletedNotesView.classList.add("hidden");
+  elements.deletedNotesView.setAttribute("aria-hidden", "true");
+  if (restoreFocus) {
+    elements.openDeletedNotesBtn.focus();
+  }
+}
+
 function setHistoryStatus(message, isError = false) {
   elements.historyStatus.textContent = message;
   elements.historyStatus.classList.toggle("error", isError);
+}
+
+function setDeletedNotesStatus(message, isError = false) {
+  elements.deletedNotesStatus.textContent = message;
+  elements.deletedNotesStatus.classList.toggle("error", isError);
 }
 
 function formatHistoryAction(action) {
@@ -1551,6 +1578,7 @@ function openHistoryView() {
   if (!isUnlocked()) {
     return;
   }
+  closeDeletedNotesView({ restoreFocus: false });
   renderHistoryForSelectedNote();
   elements.historyView.classList.remove("hidden");
   elements.historyView.setAttribute("aria-hidden", "false");
@@ -1590,6 +1618,82 @@ function restoreNoteFromHistoryCommit(commitId) {
   render();
   renderHistoryForSelectedNote();
   setHistoryStatus("Revision restored.");
+}
+
+function renderDeletedNotesList() {
+  elements.deletedNotesList.innerHTML = "";
+  const deletedNotes = state.notes
+    .filter((note) => note.deleted)
+    .sort((left, right) => noteUpdatedAtMs(right) - noteUpdatedAtMs(left));
+
+  if (deletedNotes.length === 0) {
+    setDeletedNotesStatus("No deleted notes.");
+    return;
+  }
+
+  setDeletedNotesStatus(
+    `${deletedNotes.length} deleted note${deletedNotes.length === 1 ? "" : "s"} available.`
+  );
+
+  for (const note of deletedNotes) {
+    const listItem = document.createElement("li");
+    listItem.className = "history-item";
+
+    const meta = document.createElement("div");
+    meta.className = "history-meta";
+
+    const actionLine = document.createElement("span");
+    actionLine.className = "history-action";
+    actionLine.textContent = `Deleted · ${formatDate(note.updatedAt)}`;
+
+    const previewLine = document.createElement("span");
+    previewLine.className = "history-preview";
+    const previewTitle = note.title.trim() || "Untitled";
+    const previewBody = note.content.trim();
+    previewLine.textContent = previewBody
+      ? `${previewTitle} — ${previewBody.slice(0, 120)}`
+      : previewTitle;
+
+    const restoreButton = document.createElement("button");
+    restoreButton.type = "button";
+    restoreButton.dataset.deletedNoteId = note.id;
+    restoreButton.textContent = "Restore";
+
+    meta.append(actionLine, previewLine);
+    listItem.append(meta, restoreButton);
+    elements.deletedNotesList.appendChild(listItem);
+  }
+}
+
+function openDeletedNotesView() {
+  if (!isUnlocked()) {
+    return;
+  }
+  closeHistoryView({ restoreFocus: false });
+  renderDeletedNotesList();
+  elements.deletedNotesView.classList.remove("hidden");
+  elements.deletedNotesView.setAttribute("aria-hidden", "false");
+  elements.deletedNotesCloseBtn.focus();
+}
+
+function restoreDeletedNoteById(noteId) {
+  if (!isUnlocked()) {
+    return;
+  }
+  const note = state.notes.find((entry) => entry.id === noteId && entry.deleted) || null;
+  if (!note) {
+    setDeletedNotesStatus("Deleted note no longer exists.", true);
+    return;
+  }
+
+  note.deleted = false;
+  note.updatedAt = nowIso();
+  state.selectedId = note.id;
+  appendHistoryCommitSafe("restore", note);
+  persistNotesSafe();
+  render();
+  renderDeletedNotesList();
+  setDeletedNotesStatus("Note restored.");
 }
 
 function formatDate(value) {
@@ -1865,13 +1969,21 @@ function render() {
 
   renderCryptoState();
   renderSyncState();
+  const deletedCount = state.notes.filter((note) => note.deleted).length;
   elements.openHistoryBtn.disabled = locked || !getSelectedNote();
+  elements.openDeletedNotesBtn.disabled = locked || deletedCount <= 0;
   elements.deleteNoteBtn.disabled = locked || getActiveNotes().length <= 1 || isDeleteConfirmOpen();
 
   if (locked && isHistoryOpen()) {
     closeHistoryView({ restoreFocus: false });
   } else if (isHistoryOpen()) {
     renderHistoryForSelectedNote();
+  }
+
+  if (locked && isDeletedNotesOpen()) {
+    closeDeletedNotesView({ restoreFocus: false });
+  } else if (isDeletedNotesOpen()) {
+    renderDeletedNotesList();
   }
 }
 
@@ -1892,6 +2004,7 @@ function closeSettings() {
 
 function lockCryptoSession(reasonText = "Locked") {
   closeHistoryView({ restoreFocus: false });
+  closeDeletedNotesView({ restoreFocus: false });
   closeDeleteConfirmModal({ restoreFocus: false });
   state.crypto.key = null;
   state.crypto.keyParams = null;
@@ -2228,6 +2341,10 @@ function wireEvents() {
     openHistoryView();
   });
 
+  elements.openDeletedNotesBtn.addEventListener("click", () => {
+    openDeletedNotesView();
+  });
+
   elements.historyCloseBtn.addEventListener("click", () => {
     closeHistoryView();
   });
@@ -2242,6 +2359,22 @@ function wireEvents() {
       return;
     }
     restoreNoteFromHistoryCommit(button.dataset.historyCommitId);
+  });
+
+  elements.deletedNotesCloseBtn.addEventListener("click", () => {
+    closeDeletedNotesView();
+  });
+
+  elements.deletedNotesBackdrop.addEventListener("click", () => {
+    closeDeletedNotesView();
+  });
+
+  elements.deletedNotesList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-deleted-note-id]");
+    if (!button) {
+      return;
+    }
+    restoreDeletedNoteById(button.dataset.deletedNoteId);
   });
 
   elements.newNoteBtn.addEventListener("click", () => {
@@ -2422,6 +2555,10 @@ function wireEvents() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && isDeleteConfirmOpen()) {
       closeDeleteConfirmModal();
+      return;
+    }
+    if (event.key === "Escape" && isDeletedNotesOpen()) {
+      closeDeletedNotesView();
       return;
     }
     if (event.key === "Escape" && isHistoryOpen()) {
