@@ -202,6 +202,45 @@ textarea {
   background: color-mix(in srgb, black 35%, transparent);
 }
 
+.confirm-view {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.confirm-view.hidden {
+  display: none;
+}
+
+.confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, black 35%, transparent);
+}
+
+.confirm-card {
+  position: relative;
+  width: min(440px, calc(100vw - 2rem));
+  margin: 20vh auto 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  padding: 0.9rem;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
+}
+
+.confirm-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+#delete-confirm-confirm-btn {
+  background: #8a2d21;
+  border-color: #8a2d21;
+  color: #ffffff;
+}
+
 .settings-card {
   position: relative;
   width: min(560px, calc(100vw - 2rem));

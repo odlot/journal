@@ -40,6 +40,12 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 
 Open `index.html` in a browser.
 
+## Keyboard Shortcuts
+
+- `Ctrl/Cmd + Alt + N`: New note
+- `Ctrl/Cmd + S`: Save now
+- `Ctrl/Cmd + K`: Focus search
+
 ## Validate
 
 Run `./scripts/validate.sh` locally (same checks used by CI).
