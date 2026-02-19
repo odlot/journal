@@ -182,6 +182,24 @@
       </section>
     </div>
 
+    <div id="delete-confirm-view" class="confirm-view hidden" aria-hidden="true">
+      <div id="delete-confirm-backdrop" class="confirm-backdrop"></div>
+      <section
+        class="confirm-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-confirm-title"
+      >
+        <h2 id="delete-confirm-title">Delete this note?</h2>
+        <p class="muted">This action cannot be undone.</p>
+        <p id="delete-confirm-note-title" class="confirm-note"></p>
+        <div class="inline-actions">
+          <button id="delete-confirm-cancel-btn" type="button">Cancel</button>
+          <button id="delete-confirm-confirm-btn" type="button">Delete Note</button>
+        </div>
+      </section>
+    </div>
+
     <script src="src/crypto.js"></script>
     <script src="src/sync.js"></script>
     <script src="src/app.js"></script>

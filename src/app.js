@@ -24,6 +24,11 @@ const elements = {
   deleteNoteBtn: document.getElementById("delete-note-btn"),
   openSettingsBtn: document.getElementById("open-settings-btn"),
   openSettingsOverlayBtn: document.getElementById("open-settings-overlay-btn"),
+  deleteConfirmView: document.getElementById("delete-confirm-view"),
+  deleteConfirmBackdrop: document.getElementById("delete-confirm-backdrop"),
+  deleteConfirmNoteTitle: document.getElementById("delete-confirm-note-title"),
+  deleteConfirmCancelBtn: document.getElementById("delete-confirm-cancel-btn"),
+  deleteConfirmConfirmBtn: document.getElementById("delete-confirm-confirm-btn"),
   lockedOverlayMessage: document.getElementById("locked-overlay-message"),
   closeSettingsBtn: document.getElementById("close-settings-btn"),
   settingsView: document.getElementById("settings-view"),
@@ -332,7 +337,8 @@ function handleKeyboardShortcut(event) {
     !isUnlocked() ||
     event.defaultPrevented ||
     !isShortcutModifierPressed(event) ||
-    elements.settingsView.getAttribute("aria-hidden") !== "true"
+    elements.settingsView.getAttribute("aria-hidden") !== "true" ||
+    isDeleteConfirmOpen()
   ) {
     return;
   }
@@ -1117,6 +1123,41 @@ function deleteSelectedNote() {
   render();
 }
 
+function isDeleteConfirmOpen() {
+  return elements.deleteConfirmView.getAttribute("aria-hidden") === "false";
+}
+
+function openDeleteConfirmModal() {
+  if (!isUnlocked() || getActiveNotes().length <= 1) {
+    return;
+  }
+  const noteToDelete = getSelectedNote();
+  if (!noteToDelete) {
+    return;
+  }
+  const noteTitle = noteToDelete.title.trim() || "Untitled";
+  elements.deleteConfirmNoteTitle.textContent = `Note: ${noteTitle}`;
+  elements.deleteConfirmView.classList.remove("hidden");
+  elements.deleteConfirmView.setAttribute("aria-hidden", "false");
+  elements.deleteConfirmCancelBtn.focus();
+}
+
+function closeDeleteConfirmModal({ restoreFocus = true } = {}) {
+  if (!isDeleteConfirmOpen()) {
+    return;
+  }
+  elements.deleteConfirmView.classList.add("hidden");
+  elements.deleteConfirmView.setAttribute("aria-hidden", "true");
+  if (restoreFocus) {
+    elements.deleteNoteBtn.focus();
+  }
+}
+
+function confirmDeleteSelectedNote() {
+  deleteSelectedNote();
+  closeDeleteConfirmModal({ restoreFocus: false });
+}
+
 function formatDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
@@ -1390,7 +1431,7 @@ function render() {
 
   renderCryptoState();
   renderSyncState();
-  elements.deleteNoteBtn.disabled = locked || getActiveNotes().length <= 1;
+  elements.deleteNoteBtn.disabled = locked || getActiveNotes().length <= 1 || isDeleteConfirmOpen();
 }
 
 function openSettings() {
@@ -1409,6 +1450,7 @@ function closeSettings() {
 }
 
 function lockCryptoSession(reasonText = "Locked") {
+  closeDeleteConfirmModal({ restoreFocus: false });
   state.crypto.key = null;
   state.crypto.keyParams = null;
   state.crypto.unlocking = false;
@@ -1745,7 +1787,19 @@ function wireEvents() {
     if (!isUnlocked()) {
       return;
     }
-    deleteSelectedNote();
+    openDeleteConfirmModal();
+  });
+
+  elements.deleteConfirmCancelBtn.addEventListener("click", () => {
+    closeDeleteConfirmModal();
+  });
+
+  elements.deleteConfirmConfirmBtn.addEventListener("click", () => {
+    confirmDeleteSelectedNote();
+  });
+
+  elements.deleteConfirmBackdrop.addEventListener("click", () => {
+    closeDeleteConfirmModal();
   });
 
   elements.openSettingsBtn.addEventListener("click", () => {
@@ -1898,8 +1952,13 @@ function wireEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isDeleteConfirmOpen()) {
+      closeDeleteConfirmModal();
+      return;
+    }
     if (event.key === "Escape" && !elements.settingsView.classList.contains("hidden")) {
       closeSettings();
+      return;
     }
     handleKeyboardShortcut(event);
     touchCryptoActivity();
