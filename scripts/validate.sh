@@ -14,6 +14,7 @@ required_files=(
   "src/app.js"
   "src/crypto.js"
   "src/sync.js"
+  "scripts/run-playwright-e2e.js"
   "scripts/test-e2e.sh"
   "tests/helpers/browser-module.js"
   "tests/crypto.test.js"
@@ -31,6 +32,7 @@ done
 node --check src/app.js
 node --check src/crypto.js
 node --check src/sync.js
+node --check scripts/run-playwright-e2e.js
 node --check playwright.config.js
 node --check tests/e2e/sync-retry-recovery.spec.js
 node --test tests/crypto.test.js tests/sync.test.js

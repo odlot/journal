@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "description": "Privacy-first local-first encrypted journal",
   "scripts": {
-    "test:e2e": "playwright test",
+    "test:e2e": "node scripts/run-playwright-e2e.js",
     "test:e2e:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
