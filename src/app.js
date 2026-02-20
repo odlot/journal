@@ -25,8 +25,21 @@ const elements = {
   toggleSidebarBtn: document.getElementById("toggle-sidebar-btn"),
   newNoteBtn: document.getElementById("new-note-btn"),
   deleteNoteBtn: document.getElementById("delete-note-btn"),
+  openHistoryBtn: document.getElementById("open-history-btn"),
+  openDeletedNotesBtn: document.getElementById("open-deleted-notes-btn"),
   openSettingsBtn: document.getElementById("open-settings-btn"),
   openSettingsOverlayBtn: document.getElementById("open-settings-overlay-btn"),
+  historyView: document.getElementById("history-view"),
+  historyBackdrop: document.getElementById("history-backdrop"),
+  historyCloseBtn: document.getElementById("history-close-btn"),
+  historyNoteTitle: document.getElementById("history-note-title"),
+  historyList: document.getElementById("history-list"),
+  historyStatus: document.getElementById("history-status"),
+  deletedNotesView: document.getElementById("deleted-notes-view"),
+  deletedNotesBackdrop: document.getElementById("deleted-notes-backdrop"),
+  deletedNotesCloseBtn: document.getElementById("deleted-notes-close-btn"),
+  deletedNotesList: document.getElementById("deleted-notes-list"),
+  deletedNotesStatus: document.getElementById("deleted-notes-status"),
   deleteConfirmView: document.getElementById("delete-confirm-view"),
   deleteConfirmBackdrop: document.getElementById("delete-confirm-backdrop"),
   deleteConfirmNoteTitle: document.getElementById("delete-confirm-note-title"),
@@ -456,7 +469,9 @@ function handleKeyboardShortcut(event) {
     event.defaultPrevented ||
     !isShortcutModifierPressed(event) ||
     elements.settingsView.getAttribute("aria-hidden") !== "true" ||
-    isDeleteConfirmOpen()
+    isDeleteConfirmOpen() ||
+    isHistoryOpen() ||
+    isDeletedNotesOpen()
   ) {
     return;
   }
@@ -1437,6 +1452,250 @@ function confirmDeleteSelectedNote() {
   closeDeleteConfirmModal({ restoreFocus: false });
 }
 
+function isHistoryOpen() {
+  return elements.historyView.getAttribute("aria-hidden") === "false";
+}
+
+function closeHistoryView({ restoreFocus = true } = {}) {
+  if (!isHistoryOpen()) {
+    return;
+  }
+  elements.historyView.classList.add("hidden");
+  elements.historyView.setAttribute("aria-hidden", "true");
+  if (restoreFocus) {
+    elements.openHistoryBtn.focus();
+  }
+}
+
+function isDeletedNotesOpen() {
+  return elements.deletedNotesView.getAttribute("aria-hidden") === "false";
+}
+
+function closeDeletedNotesView({ restoreFocus = true } = {}) {
+  if (!isDeletedNotesOpen()) {
+    return;
+  }
+  elements.deletedNotesView.classList.add("hidden");
+  elements.deletedNotesView.setAttribute("aria-hidden", "true");
+  if (restoreFocus) {
+    elements.openDeletedNotesBtn.focus();
+  }
+}
+
+function setHistoryStatus(message, isError = false) {
+  elements.historyStatus.textContent = message;
+  elements.historyStatus.classList.toggle("error", isError);
+}
+
+function setDeletedNotesStatus(message, isError = false) {
+  elements.deletedNotesStatus.textContent = message;
+  elements.deletedNotesStatus.classList.toggle("error", isError);
+}
+
+function formatHistoryAction(action) {
+  switch (action) {
+    case "create":
+      return "Created";
+    case "edit":
+      return "Edited";
+    case "delete":
+      return "Deleted";
+    case "restore":
+      return "Restored";
+    default:
+      return "Updated";
+  }
+}
+
+function noteHistoryCommitsFor(noteId) {
+  const commits = [];
+  for (let i = state.history.length - 1; i >= 0; i -= 1) {
+    const commit = state.history[i];
+    if (commit.noteId === noteId) {
+      commits.push(commit);
+    }
+  }
+  return commits;
+}
+
+function renderHistoryForSelectedNote() {
+  elements.historyList.innerHTML = "";
+  const selectedNote = getSelectedNote();
+  if (!selectedNote) {
+    elements.historyNoteTitle.textContent = "No active note selected.";
+    setHistoryStatus("Select a note to inspect history.");
+    return;
+  }
+
+  const noteTitle = selectedNote.title.trim() || "Untitled";
+  elements.historyNoteTitle.textContent = `History for: ${noteTitle}`;
+  const commits = noteHistoryCommitsFor(selectedNote.id);
+  if (commits.length === 0) {
+    setHistoryStatus("No history yet for this note.");
+    return;
+  }
+
+  setHistoryStatus(
+    `${commits.length} revision${commits.length === 1 ? "" : "s"} available.`
+  );
+
+  for (const commit of commits) {
+    const listItem = document.createElement("li");
+    listItem.className = "history-item";
+
+    const meta = document.createElement("div");
+    meta.className = "history-meta";
+
+    const actionLine = document.createElement("span");
+    actionLine.className = "history-action";
+    actionLine.textContent = `${formatHistoryAction(commit.action)} · ${formatDate(commit.createdAt)}`;
+
+    const previewLine = document.createElement("span");
+    previewLine.className = "history-preview";
+    if (commit.note.deleted) {
+      previewLine.textContent = "(Deleted snapshot)";
+    } else {
+      const previewTitle = commit.note.title.trim() || "Untitled";
+      const previewBody = commit.note.content.trim();
+      previewLine.textContent = previewBody
+        ? `${previewTitle} — ${previewBody.slice(0, 120)}`
+        : previewTitle;
+    }
+
+    const restoreButton = document.createElement("button");
+    restoreButton.type = "button";
+    restoreButton.dataset.historyCommitId = commit.commitId;
+    restoreButton.textContent = "Restore";
+    restoreButton.disabled = Boolean(commit.note.deleted);
+
+    meta.append(actionLine, previewLine);
+    listItem.append(meta, restoreButton);
+    elements.historyList.appendChild(listItem);
+  }
+}
+
+function openHistoryView() {
+  if (!isUnlocked()) {
+    return;
+  }
+  closeDeletedNotesView({ restoreFocus: false });
+  renderHistoryForSelectedNote();
+  elements.historyView.classList.remove("hidden");
+  elements.historyView.setAttribute("aria-hidden", "false");
+  elements.historyCloseBtn.focus();
+}
+
+function restoreNoteFromHistoryCommit(commitId) {
+  if (!isUnlocked()) {
+    return;
+  }
+
+  const commit = state.history.find((entry) => entry.commitId === commitId) || null;
+  if (!commit) {
+    setHistoryStatus("Selected revision was not found.", true);
+    return;
+  }
+  if (commit.note.deleted) {
+    setHistoryStatus("Cannot restore a deleted snapshot.", true);
+    return;
+  }
+
+  const restoredNote = normalizeNote({
+    ...commit.note,
+    deleted: false,
+    updatedAt: nowIso(),
+  });
+  const existingIndex = state.notes.findIndex((note) => note.id === restoredNote.id);
+  if (existingIndex >= 0) {
+    state.notes[existingIndex] = restoredNote;
+  } else {
+    state.notes.unshift(restoredNote);
+  }
+
+  state.selectedId = restoredNote.id;
+  appendHistoryCommitSafe("restore", restoredNote);
+  persistNotesSafe();
+  render();
+  renderHistoryForSelectedNote();
+  setHistoryStatus("Revision restored.");
+}
+
+function renderDeletedNotesList() {
+  elements.deletedNotesList.innerHTML = "";
+  const deletedNotes = state.notes
+    .filter((note) => note.deleted)
+    .sort((left, right) => noteUpdatedAtMs(right) - noteUpdatedAtMs(left));
+
+  if (deletedNotes.length === 0) {
+    setDeletedNotesStatus("No deleted notes.");
+    return;
+  }
+
+  setDeletedNotesStatus(
+    `${deletedNotes.length} deleted note${deletedNotes.length === 1 ? "" : "s"} available.`
+  );
+
+  for (const note of deletedNotes) {
+    const listItem = document.createElement("li");
+    listItem.className = "history-item";
+
+    const meta = document.createElement("div");
+    meta.className = "history-meta";
+
+    const actionLine = document.createElement("span");
+    actionLine.className = "history-action";
+    actionLine.textContent = `Deleted · ${formatDate(note.updatedAt)}`;
+
+    const previewLine = document.createElement("span");
+    previewLine.className = "history-preview";
+    const previewTitle = note.title.trim() || "Untitled";
+    const previewBody = note.content.trim();
+    previewLine.textContent = previewBody
+      ? `${previewTitle} — ${previewBody.slice(0, 120)}`
+      : previewTitle;
+
+    const restoreButton = document.createElement("button");
+    restoreButton.type = "button";
+    restoreButton.dataset.deletedNoteId = note.id;
+    restoreButton.textContent = "Restore";
+
+    meta.append(actionLine, previewLine);
+    listItem.append(meta, restoreButton);
+    elements.deletedNotesList.appendChild(listItem);
+  }
+}
+
+function openDeletedNotesView() {
+  if (!isUnlocked()) {
+    return;
+  }
+  closeHistoryView({ restoreFocus: false });
+  renderDeletedNotesList();
+  elements.deletedNotesView.classList.remove("hidden");
+  elements.deletedNotesView.setAttribute("aria-hidden", "false");
+  elements.deletedNotesCloseBtn.focus();
+}
+
+function restoreDeletedNoteById(noteId) {
+  if (!isUnlocked()) {
+    return;
+  }
+  const note = state.notes.find((entry) => entry.id === noteId && entry.deleted) || null;
+  if (!note) {
+    setDeletedNotesStatus("Deleted note no longer exists.", true);
+    return;
+  }
+
+  note.deleted = false;
+  note.updatedAt = nowIso();
+  state.selectedId = note.id;
+  appendHistoryCommitSafe("restore", note);
+  persistNotesSafe();
+  render();
+  renderDeletedNotesList();
+  setDeletedNotesStatus("Note restored.");
+}
+
 function formatDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Unknown" : date.toLocaleString();
@@ -1710,7 +1969,22 @@ function render() {
 
   renderCryptoState();
   renderSyncState();
+  const deletedCount = state.notes.filter((note) => note.deleted).length;
+  elements.openHistoryBtn.disabled = locked || !getSelectedNote();
+  elements.openDeletedNotesBtn.disabled = locked || deletedCount <= 0;
   elements.deleteNoteBtn.disabled = locked || getActiveNotes().length <= 1 || isDeleteConfirmOpen();
+
+  if (locked && isHistoryOpen()) {
+    closeHistoryView({ restoreFocus: false });
+  } else if (isHistoryOpen()) {
+    renderHistoryForSelectedNote();
+  }
+
+  if (locked && isDeletedNotesOpen()) {
+    closeDeletedNotesView({ restoreFocus: false });
+  } else if (isDeletedNotesOpen()) {
+    renderDeletedNotesList();
+  }
 }
 
 function openSettings() {
@@ -1729,6 +2003,8 @@ function closeSettings() {
 }
 
 function lockCryptoSession(reasonText = "Locked") {
+  closeHistoryView({ restoreFocus: false });
+  closeDeletedNotesView({ restoreFocus: false });
   closeDeleteConfirmModal({ restoreFocus: false });
   state.crypto.key = null;
   state.crypto.keyParams = null;
@@ -2061,6 +2337,46 @@ function wireEvents() {
     togglePreviewVisibility();
   });
 
+  elements.openHistoryBtn.addEventListener("click", () => {
+    openHistoryView();
+  });
+
+  elements.openDeletedNotesBtn.addEventListener("click", () => {
+    openDeletedNotesView();
+  });
+
+  elements.historyCloseBtn.addEventListener("click", () => {
+    closeHistoryView();
+  });
+
+  elements.historyBackdrop.addEventListener("click", () => {
+    closeHistoryView();
+  });
+
+  elements.historyList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-history-commit-id]");
+    if (!button) {
+      return;
+    }
+    restoreNoteFromHistoryCommit(button.dataset.historyCommitId);
+  });
+
+  elements.deletedNotesCloseBtn.addEventListener("click", () => {
+    closeDeletedNotesView();
+  });
+
+  elements.deletedNotesBackdrop.addEventListener("click", () => {
+    closeDeletedNotesView();
+  });
+
+  elements.deletedNotesList.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-deleted-note-id]");
+    if (!button) {
+      return;
+    }
+    restoreDeletedNoteById(button.dataset.deletedNoteId);
+  });
+
   elements.newNoteBtn.addEventListener("click", () => {
     if (!isUnlocked()) {
       return;
@@ -2239,6 +2555,14 @@ function wireEvents() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && isDeleteConfirmOpen()) {
       closeDeleteConfirmModal();
+      return;
+    }
+    if (event.key === "Escape" && isDeletedNotesOpen()) {
+      closeDeletedNotesView();
+      return;
+    }
+    if (event.key === "Escape" && isHistoryOpen()) {
+      closeHistoryView();
       return;
     }
     if (event.key === "Escape" && !elements.settingsView.classList.contains("hidden")) {

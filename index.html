@@ -24,6 +24,8 @@
         </button>
         <button id="new-note-btn" type="button">New Note</button>
         <button id="delete-note-btn" type="button">Delete</button>
+        <button id="open-history-btn" type="button">History</button>
+        <button id="open-deleted-notes-btn" type="button">Deleted</button>
         <button id="toggle-preview-btn" type="button" aria-pressed="false">Hide Preview</button>
         <button id="open-settings-btn" type="button">Settings</button>
       </div>
@@ -197,6 +199,36 @@
           <button id="delete-confirm-cancel-btn" type="button">Cancel</button>
           <button id="delete-confirm-confirm-btn" type="button">Delete Note</button>
         </div>
+      </section>
+    </div>
+
+    <div id="history-view" class="history-view hidden" aria-hidden="true">
+      <div id="history-backdrop" class="history-backdrop"></div>
+      <section class="history-card" role="dialog" aria-modal="true" aria-labelledby="history-title">
+        <div class="settings-header">
+          <h2 id="history-title">Note History</h2>
+          <button id="history-close-btn" type="button">Close</button>
+        </div>
+        <p id="history-note-title" class="muted">No active note selected.</p>
+        <ul id="history-list" class="history-list"></ul>
+        <p id="history-status" class="muted">No history yet.</p>
+      </section>
+    </div>
+
+    <div id="deleted-notes-view" class="deleted-notes-view hidden" aria-hidden="true">
+      <div id="deleted-notes-backdrop" class="deleted-notes-backdrop"></div>
+      <section
+        class="deleted-notes-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="deleted-notes-title"
+      >
+        <div class="settings-header">
+          <h2 id="deleted-notes-title">Deleted Notes</h2>
+          <button id="deleted-notes-close-btn" type="button">Close</button>
+        </div>
+        <ul id="deleted-notes-list" class="history-list"></ul>
+        <p id="deleted-notes-status" class="muted">No deleted notes.</p>
       </section>
     </div>
 

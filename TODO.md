@@ -77,5 +77,5 @@
 ## 11) History and Recovery
 
 - [x] Add local encrypted commit-history store and write path for create/edit/delete
-- [ ] Add restore UI from note history
-- [ ] Add deleted-notes recovery view
+- [x] Add restore UI from note history
+- [x] Add deleted-notes recovery view
