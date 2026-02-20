@@ -2,6 +2,10 @@
 
 const { defineConfig, devices } = require("@playwright/test");
 
+const rawPort = Number.parseInt(process.env.PLAYWRIGHT_PORT || "4173", 10);
+const port = Number.isInteger(rawPort) && rawPort > 0 ? rawPort : 4173;
+const baseURL = `http://127.0.0.1:${port}`;
+
 module.exports = defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
@@ -12,12 +16,12 @@ module.exports = defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: "list",
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL,
     headless: true,
   },
   webServer: {
-    command: "python3 -m http.server 4173 --bind 127.0.0.1",
-    url: "http://127.0.0.1:4173/index.html",
+    command: `python3 -m http.server ${port} --bind 127.0.0.1`,
+    url: `${baseURL}/index.html`,
     timeout: 120000,
     reuseExistingServer: !process.env.CI,
   },

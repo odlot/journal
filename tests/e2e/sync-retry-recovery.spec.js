@@ -34,13 +34,14 @@ test("sync retries transient failures and eventually completes", async ({ page }
   });
 
   await page.goto("/index.html");
+  const appOrigin = new URL(page.url()).origin;
 
   await page.fill("#passphrase-input", "correct horse battery staple");
   await page.fill("#passphrase-confirm-input", "correct horse battery staple");
   await page.click("#unlock-btn");
   await expect(page.locator("#crypto-status")).toHaveText("Unlocked");
 
-  await page.fill("#sync-endpoint-input", "http://127.0.0.1:4173/mock-sync");
+  await page.fill("#sync-endpoint-input", `${appOrigin}/mock-sync`);
   await expect(page.locator("#sync-now-btn")).toBeEnabled();
   await page.press("#sync-endpoint-input", "Enter");
 

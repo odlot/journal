@@ -42,6 +42,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - `SYNC_PROTOCOL.md`
 - `scripts/validate.sh`
 - `scripts/test-e2e.sh`
+- `scripts/run-playwright-e2e.js`
 
 ## Run
 
@@ -69,3 +70,5 @@ Scripts:
 : Fast validation path (used by CI `validate` job) without Playwright E2E.
 - `./scripts/test-e2e.sh`
 : Runs only Playwright E2E. Installs npm deps if missing, installs Chromium, then executes E2E tests.
+- `npm run test:e2e`
+: Runs Playwright via `scripts/run-playwright-e2e.js`, which auto-selects an available localhost port.
