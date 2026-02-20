@@ -48,7 +48,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - name: Validate
-        run: ./scripts/validate.sh
+        run: VALIDATE_SKIP_E2E=1 ./scripts/validate.sh
 
       - name: Ensure clean working tree after validation
         run: |
@@ -76,7 +76,7 @@ jobs:
           fi
 
       - name: Lint shell scripts
-        run: shellcheck --severity=warning scripts/validate.sh
+        run: shellcheck --severity=warning scripts/validate.sh scripts/test-e2e.sh
 
   actionlint:
     name: Actionlint
@@ -92,3 +92,28 @@ jobs:
 
       - name: Lint workflow files
         uses: docker://rhysd/actionlint:latest
+
+  e2e-sync-retry:
+    name: E2E Sync Retry (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.x"
+
+      - name: Install Chromium for Playwright
+        run: |
+          npm install --no-fund --no-audit
+          npm run test:e2e:install
+
+      - name: Run E2E tests
+        run: npm run test:e2e
