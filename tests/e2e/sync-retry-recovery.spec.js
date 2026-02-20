@@ -42,7 +42,7 @@ test("sync retries transient failures and eventually completes", async ({ page }
 
   await page.fill("#sync-endpoint-input", "http://127.0.0.1:4173/mock-sync");
   await expect(page.locator("#sync-now-btn")).toBeEnabled();
-  await page.click("#sync-now-btn");
+  await page.press("#sync-endpoint-input", "Enter");
 
   await expect(page.locator("#sync-status")).toContainText("Last synced");
 
