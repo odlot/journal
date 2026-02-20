@@ -17,6 +17,9 @@ const KEY_CHECK_SENTINEL = "journal-key-check-v1";
 const BACKUP_VERSION = 1;
 const AUTOSAVE_DELAY_MS = 250;
 const DEFAULT_AUTO_LOCK_MS = 300000;
+const DEFAULT_SYNC_MAX_RETRIES = 2;
+const DEFAULT_SYNC_RETRY_DELAY_MS = 250;
+const DEFAULT_SYNC_RETRY_BACKOFF = 2;
 const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
 const LOCAL_DATA_KEYS = Object.freeze([KEY_CHECK_KEY, AUTO_LOCK_KEY, SYNC_ENDPOINT_KEY, SYNC_META_KEY]);
 const HISTORY_ACTIONS = Object.freeze(new Set(["create", "edit", "delete", "restore"]));
@@ -721,6 +724,11 @@ function createSyncAdapter(endpoint) {
     endpoint,
     parseJson: (raw) => safeJsonParse(raw, null),
     validators: getSyncValidators(),
+    retry: {
+      maxRetries: DEFAULT_SYNC_MAX_RETRIES,
+      delayMs: DEFAULT_SYNC_RETRY_DELAY_MS,
+      backoffFactor: DEFAULT_SYNC_RETRY_BACKOFF,
+    },
   });
 }
 

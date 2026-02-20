@@ -65,7 +65,7 @@
 
 - [x] Unit test crypto helpers (key derivation/encrypt/decrypt)
 - [ ] Test offline usage and recovery
-- [ ] Test sync with network failures/retries
+- [x] Test sync with network failures/retries
 - [x] Validate no plaintext leaves browser during sync
 
 ## 10) Documentation

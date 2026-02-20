@@ -14,6 +14,7 @@
   const KEY_CHECK_KEYS = Object.freeze(["version", "saltB64", "iterations", "check"]);
   const ENCRYPTED_NOTES_KEYS = Object.freeze(["version", "revisionId", "updatedAt", "payload"]);
   const ENCRYPTED_BLOB_KEYS = Object.freeze(["ivB64", "ciphertextB64", "cipher"]);
+  const RETRYABLE_STATUS_CODES = Object.freeze(new Set([408, 425, 429, 500, 502, 503, 504]));
 
   function isObject(value) {
     return Boolean(value) && typeof value === "object";
@@ -79,6 +80,51 @@
     } catch {
       return false;
     }
+  }
+
+  function normalizeRetryConfig(retry) {
+    if (!isObject(retry)) {
+      return Object.freeze({
+        maxRetries: 0,
+        retryOnNetworkError: true,
+        delayMs: 200,
+        backoffFactor: 2,
+      });
+    }
+
+    const maxRetries = Number.isInteger(retry.maxRetries) && retry.maxRetries >= 0
+      ? retry.maxRetries
+      : 0;
+    const delayMs = Number.isFinite(retry.delayMs) && retry.delayMs >= 0
+      ? Number(retry.delayMs)
+      : 200;
+    const backoffFactor = Number.isFinite(retry.backoffFactor) && retry.backoffFactor >= 1
+      ? Number(retry.backoffFactor)
+      : 2;
+
+    return Object.freeze({
+      maxRetries,
+      retryOnNetworkError: retry.retryOnNetworkError !== false,
+      delayMs,
+      backoffFactor,
+    });
+  }
+
+  function retryDelayMsForAttempt(attemptNumber, retryConfig) {
+    return Math.round(
+      retryConfig.delayMs * Math.pow(retryConfig.backoffFactor, Math.max(0, attemptNumber - 1))
+    );
+  }
+
+  function shouldRetryStatus(status) {
+    return RETRYABLE_STATUS_CODES.has(status);
+  }
+
+  async function sleep(ms, sleepImpl) {
+    if (ms <= 0) {
+      return;
+    }
+    await sleepImpl(ms);
   }
 
   function isValidEncryptedState(state, validators = {}) {
@@ -168,38 +214,67 @@
     };
   }
 
-  function createRestAdapter({ endpoint, parseJson = JSON.parse, fetchImpl = fetch, validators = {} }) {
+  function createRestAdapter({
+    endpoint,
+    parseJson = JSON.parse,
+    fetchImpl = fetch,
+    validators = {},
+    retry = {},
+    sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  }) {
     const normalizedValidators = isObject(validators) ? validators : {};
+    const retryConfig = normalizeRetryConfig(retry);
+    const maxAttempts = retryConfig.maxRetries + 1;
+
     return {
       async sync(payload) {
         if (!isValidRequestPayload(payload, normalizedValidators)) {
           throw new Error("Invalid sync request");
         }
 
-        const response = await fetchImpl(endpoint, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        });
+        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+          let response = null;
 
-        if (!response.ok) {
-          throw new Error(`Sync request failed (${response.status})`);
-        }
+          try {
+            response = await fetchImpl(endpoint, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(payload),
+            });
+          } catch (error) {
+            const shouldRetry =
+              retryConfig.retryOnNetworkError && attempt < maxAttempts;
+            if (!shouldRetry) {
+              throw error;
+            }
+            await sleep(retryDelayMsForAttempt(attempt, retryConfig), sleepImpl);
+            continue;
+          }
 
-        const rawBody = await response.text();
-        let parsed = null;
-        try {
-          parsed = parseJson(rawBody);
-        } catch {
-          parsed = null;
-        }
+          if (!response.ok) {
+            const shouldRetry = shouldRetryStatus(response.status) && attempt < maxAttempts;
+            if (shouldRetry) {
+              await sleep(retryDelayMsForAttempt(attempt, retryConfig), sleepImpl);
+              continue;
+            }
+            throw new Error(`Sync request failed (${response.status})`);
+          }
 
-        if (!isValidResponsePayload(parsed, normalizedValidators)) {
-          throw new Error("Invalid sync response");
+          const rawBody = await response.text();
+          let parsed = null;
+          try {
+            parsed = parseJson(rawBody);
+          } catch {
+            parsed = null;
+          }
+
+          if (!isValidResponsePayload(parsed, normalizedValidators)) {
+            throw new Error("Invalid sync response");
+          }
+          return parsed;
         }
-        return parsed;
       },
     };
   }
