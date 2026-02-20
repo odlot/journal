@@ -19,6 +19,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - Encrypted JSON backup export/import from Settings
 - Clear local data wipe action for browser-stored notes/keys/sync settings
 - Manual cloud sync with REST adapter and encrypted payload-only protocol
+- Automatic retry for transient sync network/server failures (bounded backoff)
 - Conflict detection with keep-both merge and local/server resolution controls
 - Encrypted local commit history with per-note restore UI and deleted-note recovery view
 - Unit tests for crypto and sync helper modules (run via validation script)

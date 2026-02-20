@@ -278,3 +278,98 @@ test("createRestAdapter rejects outgoing requests that include plaintext fields"
 
   await assert.rejects(() => adapter.sync(requestWithPlaintextFields), /invalid sync request/i);
 });
+
+test("createRestAdapter retries transient HTTP failures and then succeeds", async () => {
+  const context = createBrowserLikeContext();
+  loadBrowserScript("src/sync.js", context);
+  const api = context.JournalSync;
+  const validators = createValidators();
+  const request = api.buildSyncRequest(createValidClientPayload());
+  let attemptCount = 0;
+  const sleepCalls = [];
+
+  const adapter = api.createRestAdapter({
+    endpoint: "https://example.com/api/sync",
+    validators,
+    retry: { maxRetries: 2, delayMs: 10, backoffFactor: 2 },
+    sleepImpl: async (ms) => {
+      sleepCalls.push(ms);
+    },
+    fetchImpl: async () => {
+      attemptCount += 1;
+      if (attemptCount < 3) {
+        return {
+          ok: false,
+          status: 503,
+          text: async () => "",
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify(createValidResponse()),
+      };
+    },
+  });
+
+  const response = await adapter.sync(request);
+  assert.equal(response.serverRevision, "rev-2");
+  assert.equal(attemptCount, 3);
+  assert.deepEqual(sleepCalls, [10, 20]);
+});
+
+test("createRestAdapter retries network failures when enabled", async () => {
+  const context = createBrowserLikeContext();
+  loadBrowserScript("src/sync.js", context);
+  const api = context.JournalSync;
+  const validators = createValidators();
+  const request = api.buildSyncRequest(createValidClientPayload());
+  let attemptCount = 0;
+
+  const adapter = api.createRestAdapter({
+    endpoint: "https://example.com/api/sync",
+    validators,
+    retry: { maxRetries: 1, delayMs: 0, retryOnNetworkError: true },
+    fetchImpl: async () => {
+      attemptCount += 1;
+      if (attemptCount === 1) {
+        throw new Error("network down");
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify(createValidResponse()),
+      };
+    },
+  });
+
+  const response = await adapter.sync(request);
+  assert.equal(response.serverRevision, "rev-2");
+  assert.equal(attemptCount, 2);
+});
+
+test("createRestAdapter does not retry non-retryable HTTP status", async () => {
+  const context = createBrowserLikeContext();
+  loadBrowserScript("src/sync.js", context);
+  const api = context.JournalSync;
+  const validators = createValidators();
+  const request = api.buildSyncRequest(createValidClientPayload());
+  let attemptCount = 0;
+
+  const adapter = api.createRestAdapter({
+    endpoint: "https://example.com/api/sync",
+    validators,
+    retry: { maxRetries: 3, delayMs: 0 },
+    fetchImpl: async () => {
+      attemptCount += 1;
+      return {
+        ok: false,
+        status: 400,
+        text: async () => "",
+      };
+    },
+  });
+
+  await assert.rejects(() => adapter.sync(request), /sync request failed \(400\)/i);
+  assert.equal(attemptCount, 1);
+});
