@@ -14,11 +14,13 @@ required_files=(
   "src/app.js"
   "src/crypto.js"
   "src/sync.js"
+  "scripts/build-deploy-manifest.sh"
   "scripts/run-playwright-e2e.js"
   "scripts/test-e2e.sh"
   "tests/helpers/browser-module.js"
   "tests/crypto.test.js"
   "tests/sync.test.js"
+  "tests/e2e/accessibility-dialogs.spec.js"
   "tests/e2e/offline-recovery.spec.js"
   "tests/e2e/sync-retry-recovery.spec.js"
   "tests/e2e/theme-preference.spec.js"
@@ -34,8 +36,10 @@ done
 node --check src/app.js
 node --check src/crypto.js
 node --check src/sync.js
+bash -n scripts/build-deploy-manifest.sh
 node --check scripts/run-playwright-e2e.js
 node --check playwright.config.js
+node --check tests/e2e/accessibility-dialogs.spec.js
 node --check tests/e2e/offline-recovery.spec.js
 node --check tests/e2e/sync-retry-recovery.spec.js
 node --check tests/e2e/theme-preference.spec.js
@@ -51,5 +55,11 @@ grep -Fq 'src="src/app.js"' index.html
 grep -Fq 'id="wipe-local-data-btn"' index.html
 grep -Fq 'id="wipe-local-data-status"' index.html
 grep -Fq 'id="theme-select"' index.html
+
+manifest_output="$(mktemp)"
+./scripts/build-deploy-manifest.sh "$manifest_output"
+grep -Fq "index.html" "$manifest_output"
+grep -Fq "src/app.js" "$manifest_output"
+rm -f "$manifest_output"
 
 echo "Validation passed."

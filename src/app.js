@@ -25,6 +25,14 @@ const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
 const ALLOWED_THEMES = new Set(["light", "dark"]);
 const LOCAL_DATA_KEYS = Object.freeze([KEY_CHECK_KEY, AUTO_LOCK_KEY, SYNC_ENDPOINT_KEY, SYNC_META_KEY]);
 const HISTORY_ACTIONS = Object.freeze(new Set(["create", "edit", "delete", "restore"]));
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(", ");
 
 const elements = {
   toggleSidebarBtn: document.getElementById("toggle-sidebar-btn"),
@@ -35,17 +43,20 @@ const elements = {
   openSettingsBtn: document.getElementById("open-settings-btn"),
   openSettingsOverlayBtn: document.getElementById("open-settings-overlay-btn"),
   historyView: document.getElementById("history-view"),
+  historyCard: document.getElementById("history-card"),
   historyBackdrop: document.getElementById("history-backdrop"),
   historyCloseBtn: document.getElementById("history-close-btn"),
   historyNoteTitle: document.getElementById("history-note-title"),
   historyList: document.getElementById("history-list"),
   historyStatus: document.getElementById("history-status"),
   deletedNotesView: document.getElementById("deleted-notes-view"),
+  deletedNotesCard: document.getElementById("deleted-notes-card"),
   deletedNotesBackdrop: document.getElementById("deleted-notes-backdrop"),
   deletedNotesCloseBtn: document.getElementById("deleted-notes-close-btn"),
   deletedNotesList: document.getElementById("deleted-notes-list"),
   deletedNotesStatus: document.getElementById("deleted-notes-status"),
   deleteConfirmView: document.getElementById("delete-confirm-view"),
+  deleteConfirmCard: document.getElementById("delete-confirm-card"),
   deleteConfirmBackdrop: document.getElementById("delete-confirm-backdrop"),
   deleteConfirmNoteTitle: document.getElementById("delete-confirm-note-title"),
   deleteConfirmCancelBtn: document.getElementById("delete-confirm-cancel-btn"),
@@ -53,6 +64,7 @@ const elements = {
   lockedOverlayMessage: document.getElementById("locked-overlay-message"),
   closeSettingsBtn: document.getElementById("close-settings-btn"),
   settingsView: document.getElementById("settings-view"),
+  settingsCard: document.getElementById("settings-card"),
   settingsBackdrop: document.getElementById("settings-backdrop"),
   lockedOverlay: document.getElementById("locked-overlay"),
   searchInput: document.getElementById("search-input"),
@@ -1495,6 +1507,73 @@ function isDeletedNotesOpen() {
   return elements.deletedNotesView.getAttribute("aria-hidden") === "false";
 }
 
+function getActiveDialogCard() {
+  if (isDeleteConfirmOpen()) {
+    return elements.deleteConfirmCard;
+  }
+  if (isDeletedNotesOpen()) {
+    return elements.deletedNotesCard;
+  }
+  if (isHistoryOpen()) {
+    return elements.historyCard;
+  }
+  if (elements.settingsView.getAttribute("aria-hidden") === "false") {
+    return elements.settingsCard;
+  }
+  return null;
+}
+
+function isVisibleElement(element) {
+  return Boolean(element) && element.getClientRects().length > 0;
+}
+
+function focusableElementsWithin(container) {
+  if (!container) {
+    return [];
+  }
+  return Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR)).filter((element) =>
+    isVisibleElement(element)
+  );
+}
+
+function trapFocusWithinActiveDialog(event) {
+  if (event.key !== "Tab") {
+    return false;
+  }
+  const dialogCard = getActiveDialogCard();
+  if (!dialogCard) {
+    return false;
+  }
+
+  const focusable = focusableElementsWithin(dialogCard);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    dialogCard.focus();
+    return true;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  const activeInsideDialog = dialogCard.contains(active);
+
+  if (event.shiftKey) {
+    if (!activeInsideDialog || active === first) {
+      event.preventDefault();
+      last.focus();
+      return true;
+    }
+    return false;
+  }
+
+  if (!activeInsideDialog || active === last) {
+    event.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
+}
+
 function closeDeletedNotesView({ restoreFocus = true } = {}) {
   if (!isDeletedNotesOpen()) {
     return;
@@ -2590,6 +2669,9 @@ function wireEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Tab" && trapFocusWithinActiveDialog(event)) {
+      return;
+    }
     if (event.key === "Escape" && isDeleteConfirmOpen()) {
       closeDeleteConfirmModal();
       return;

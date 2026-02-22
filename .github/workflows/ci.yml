@@ -76,7 +76,7 @@ jobs:
           fi
 
       - name: Lint shell scripts
-        run: shellcheck --severity=warning scripts/validate.sh scripts/test-e2e.sh
+        run: shellcheck --severity=warning scripts/build-deploy-manifest.sh scripts/validate.sh scripts/test-e2e.sh
 
   actionlint:
     name: Actionlint

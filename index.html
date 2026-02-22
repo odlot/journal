@@ -64,10 +64,12 @@
     <div id="settings-view" class="settings-view hidden" aria-hidden="true">
       <div id="settings-backdrop" class="settings-backdrop"></div>
       <section
+        id="settings-card"
         class="settings-card"
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
+        tabindex="-1"
       >
         <div class="settings-header">
           <h2 id="settings-title">Settings</h2>
@@ -193,10 +195,12 @@
     <div id="delete-confirm-view" class="confirm-view hidden" aria-hidden="true">
       <div id="delete-confirm-backdrop" class="confirm-backdrop"></div>
       <section
+        id="delete-confirm-card"
         class="confirm-card"
         role="dialog"
         aria-modal="true"
         aria-labelledby="delete-confirm-title"
+        tabindex="-1"
       >
         <h2 id="delete-confirm-title">Delete this note?</h2>
         <p class="muted">This action cannot be undone.</p>
@@ -210,7 +214,14 @@
 
     <div id="history-view" class="history-view hidden" aria-hidden="true">
       <div id="history-backdrop" class="history-backdrop"></div>
-      <section class="history-card" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <section
+        id="history-card"
+        class="history-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="history-title"
+        tabindex="-1"
+      >
         <div class="settings-header">
           <h2 id="history-title">Note History</h2>
           <button id="history-close-btn" type="button">Close</button>
@@ -224,10 +235,12 @@
     <div id="deleted-notes-view" class="deleted-notes-view hidden" aria-hidden="true">
       <div id="deleted-notes-backdrop" class="deleted-notes-backdrop"></div>
       <section
+        id="deleted-notes-card"
         class="deleted-notes-card"
         role="dialog"
         aria-modal="true"
         aria-labelledby="deleted-notes-title"
+        tabindex="-1"
       >
         <div class="settings-header">
           <h2 id="deleted-notes-title">Deleted Notes</h2>
