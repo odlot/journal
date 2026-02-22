@@ -19,6 +19,7 @@ required_files=(
   "tests/helpers/browser-module.js"
   "tests/crypto.test.js"
   "tests/sync.test.js"
+  "tests/e2e/offline-recovery.spec.js"
   "tests/e2e/sync-retry-recovery.spec.js"
 )
 
@@ -34,6 +35,7 @@ node --check src/crypto.js
 node --check src/sync.js
 node --check scripts/run-playwright-e2e.js
 node --check playwright.config.js
+node --check tests/e2e/offline-recovery.spec.js
 node --check tests/e2e/sync-retry-recovery.spec.js
 node --test tests/crypto.test.js tests/sync.test.js
 if [[ "${VALIDATE_SKIP_E2E:-0}" != "1" ]]; then

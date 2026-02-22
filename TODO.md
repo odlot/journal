@@ -64,7 +64,7 @@
 ## 9) Testing and Verification
 
 - [x] Unit test crypto helpers (key derivation/encrypt/decrypt)
-- [ ] Test offline usage and recovery
+- [x] Test offline usage and recovery
 - [x] Test sync with network failures/retries
 - [x] Validate no plaintext leaves browser during sync
 
