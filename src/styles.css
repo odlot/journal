@@ -85,6 +85,17 @@ h2 {
 .actions {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.time-travel-badge {
+  font-size: 0.76rem;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.28rem 0.45rem;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  color: var(--text);
 }
 
 button,
@@ -398,6 +409,11 @@ textarea {
   background: var(--surface);
 }
 
+.history-item.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+
 .history-meta {
   min-width: 0;
   display: grid;
@@ -413,6 +429,35 @@ textarea {
 .history-preview {
   font-size: 0.9rem;
   overflow-wrap: anywhere;
+}
+
+.history-actions {
+  display: grid;
+  gap: 0.3rem;
+  justify-items: end;
+}
+
+.history-detail {
+  margin-top: 0.7rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+}
+
+.history-detail h2 {
+  font-size: 0.9rem;
+}
+
+.history-diff {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  padding: 0.5rem;
+  background: var(--surface);
+  max-height: 12rem;
+  overflow: auto;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .deleted-notes-view {
