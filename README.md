@@ -24,6 +24,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - Conflict detection with keep-both merge and local/server resolution controls
 - Encrypted local commit history with per-note restore UI and deleted-note recovery view
 - Light/dark theme toggle with local preference persistence
+- Dialog focus-trap and keyboard accessibility hardening
 - Unit tests for crypto and sync helper modules (run via validation script)
 
 ## Structure
@@ -36,13 +37,16 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - `src/app.js`
 - `tests/crypto.test.js`
 - `tests/sync.test.js`
+- `tests/e2e/accessibility-dialogs.spec.js`
 - `tests/e2e/offline-recovery.spec.js`
 - `tests/e2e/sync-retry-recovery.spec.js`
 - `tests/e2e/theme-preference.spec.js`
 - `playwright.config.js`
 - `ARCHITECTURE.md`
+- `RELEASE_CHECKLIST.md`
 - `SECURITY.md`
 - `SYNC_PROTOCOL.md`
+- `scripts/build-deploy-manifest.sh`
 - `scripts/validate.sh`
 - `scripts/test-e2e.sh`
 - `scripts/run-playwright-e2e.js`
@@ -75,3 +79,5 @@ Scripts:
 : Runs only Playwright E2E. Installs npm deps if missing, installs Chromium, then executes E2E tests.
 - `npm run test:e2e`
 : Runs Playwright via `scripts/run-playwright-e2e.js`, which auto-selects an available localhost port.
+- `./scripts/build-deploy-manifest.sh [output_path]`
+: Builds a SHA-256 manifest for deployment files (`index.html` + `src/*`) for artifact integrity smoke checks.

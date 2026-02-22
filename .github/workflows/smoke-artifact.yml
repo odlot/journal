@@ -1,0 +1,46 @@
+name: Artifact Smoke
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CI: "true"
+
+jobs:
+  deploy-artifact-integrity:
+    name: Deploy Artifact Integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Build deployment manifest
+        run: ./scripts/build-deploy-manifest.sh deploy-manifest.txt
+
+      - name: Preview manifest
+        run: head -n 40 deploy-manifest.txt
+
+      - name: Upload manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-manifest
+          path: deploy-manifest.txt
+          if-no-files-found: error
