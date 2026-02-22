@@ -24,6 +24,9 @@ Use this checklist before cutting a release from `main`.
   - [ ] Actionlint
   - [ ] E2E Sync Retry (Playwright)
 - [ ] `Artifact Smoke` workflow is green and produced `deploy-manifest` artifact.
+- [ ] `Release` workflow behavior confirmed:
+  - [ ] PR merge to `main` produced automatic `patch` release bump/tag.
+  - [ ] Manual dispatch was used only for `minor`/`major` release increments when needed.
 
 ## 4. Security and Privacy
 

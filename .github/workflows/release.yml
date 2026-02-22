@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  pull_request:
+    types:
+      - closed
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Manual release increment type"
+        required: true
+        type: choice
+        options:
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Version Bump And Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.x"
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync main and tags
+        run: |
+          git fetch origin main --tags
+          git checkout main
+          git pull --ff-only origin main
+
+      - name: Resolve release type
+        id: release_type
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            release_type="${{ inputs.release_type }}"
+          else
+            release_type="patch"
+          fi
+
+          case "$release_type" in
+            patch|minor|major) ;;
+            *)
+              echo "Unsupported release type: $release_type" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version
+        id: bump_version
+        run: |
+          next_version="$(npm version "${{ steps.release_type.outputs.release_type }}" --no-git-tag-version)"
+          next_version="${next_version#v}"
+          echo "next_version=$next_version" >> "$GITHUB_OUTPUT"
+
+      - name: Commit version bump and create tag
+        run: |
+          version="${{ steps.bump_version.outputs.next_version }}"
+          tag="v${version}"
+
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag already exists: $tag" >&2
+            exit 1
+          fi
+
+          git add package.json package-lock.json
+          git commit -m "chore(release): v${version}"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin main
+          git push origin "$tag"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.bump_version.outputs.next_version }}
+          generate_release_notes: true

@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 required_files=(
+  ".github/workflows/release.yml"
   "index.html"
   "README.md"
   "package.json"

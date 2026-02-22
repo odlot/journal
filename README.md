@@ -81,3 +81,8 @@ Scripts:
 : Runs Playwright via `scripts/run-playwright-e2e.js`, which auto-selects an available localhost port.
 - `./scripts/build-deploy-manifest.sh [output_path]`
 : Builds a SHA-256 manifest for deployment files (`index.html` + `src/*`) for artifact integrity smoke checks.
+
+## Release Automation
+
+- Merged PRs to `main` trigger `.github/workflows/release.yml`, which automatically increments the patch version and creates a GitHub release tag.
+- Manual releases are supported via `workflow_dispatch` in the same workflow and only allow `minor` or `major` increments.
