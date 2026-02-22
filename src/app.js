@@ -17,6 +17,8 @@ const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
 const BACKUP_VERSION = 1;
 const AUTOSAVE_DELAY_MS = 250;
+const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS_PER_NOTE = 24;
 const DEFAULT_AUTO_LOCK_MS = 300000;
 const DEFAULT_SYNC_MAX_RETRIES = 2;
 const DEFAULT_SYNC_RETRY_DELAY_MS = 250;
@@ -71,6 +73,10 @@ const elements = {
   noteList: document.getElementById("note-list"),
   noteTitleInput: document.getElementById("note-title-input"),
   noteContentInput: document.getElementById("note-content-input"),
+  attachFilesBtn: document.getElementById("attach-files-btn"),
+  attachFilesInput: document.getElementById("attach-files-input"),
+  attachmentsList: document.getElementById("attachments-list"),
+  attachmentsStatus: document.getElementById("attachments-status"),
   previewOutput: document.getElementById("preview-output"),
   passphraseInput: document.getElementById("passphrase-input"),
   setupConfirmWrap: document.getElementById("setup-confirm-wrap"),
@@ -623,6 +629,34 @@ function setOrRemoveLocalStorage(key, value) {
   localStorage.setItem(key, value);
 }
 
+function isLikelyDataUrl(value) {
+  return typeof value === "string" && value.startsWith("data:") && value.includes(";base64,");
+}
+
+function normalizeAttachment(rawAttachment) {
+  const normalizedSize = Number(rawAttachment && rawAttachment.size);
+  return {
+    id: String((rawAttachment && rawAttachment.id) || uid()),
+    name: String((rawAttachment && rawAttachment.name) || "attachment"),
+    mime: String((rawAttachment && rawAttachment.mime) || "application/octet-stream"),
+    size: Number.isFinite(normalizedSize) && normalizedSize >= 0 ? normalizedSize : 0,
+    createdAt: String((rawAttachment && rawAttachment.createdAt) || nowIso()),
+    dataUrl: isLikelyDataUrl(rawAttachment && rawAttachment.dataUrl)
+      ? rawAttachment.dataUrl
+      : "",
+  };
+}
+
+function normalizeAttachmentsArray(rawAttachments) {
+  if (!Array.isArray(rawAttachments)) {
+    return [];
+  }
+  return rawAttachments
+    .filter((entry) => entry && typeof entry === "object")
+    .map(normalizeAttachment)
+    .filter((attachment) => attachment.dataUrl.length > 0);
+}
+
 function normalizeNote(rawNote) {
   return {
     id: String(rawNote.id || uid()),
@@ -630,6 +664,7 @@ function normalizeNote(rawNote) {
     content: String(rawNote.content || ""),
     updatedAt: String(rawNote.updatedAt || nowIso()),
     deleted: Boolean(rawNote.deleted),
+    attachments: normalizeAttachmentsArray(rawNote.attachments),
   };
 }
 
@@ -775,10 +810,49 @@ function setChangePassphraseStatus(message, isError = false) {
   elements.changePassphraseStatus.classList.toggle("error", isError);
 }
 
+function setAttachmentsStatus(message, isError = false) {
+  elements.attachmentsStatus.textContent = message;
+  elements.attachmentsStatus.classList.toggle("error", isError);
+}
+
 function clearChangePassphraseInputs() {
   elements.currentPassphraseInput.value = "";
   elements.newPassphraseInput.value = "";
   elements.newPassphraseConfirmInput.value = "";
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value < 0) {
+    return "0 B";
+  }
+  if (value < 1024) {
+    return `${Math.round(value)} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImageAttachment(attachment) {
+  return String(attachment.mime || "").startsWith("image/");
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (!isLikelyDataUrl(result)) {
+        reject(new Error("Unsupported attachment payload"));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = () => reject(reader.error || new Error("Attachment read failed"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function noteUpdatedAtMs(note) {
@@ -787,10 +861,26 @@ function noteUpdatedAtMs(note) {
 }
 
 function notesContentEqual(left, right) {
+  const leftAttachments = normalizeAttachmentsArray(left.attachments);
+  const rightAttachments = normalizeAttachmentsArray(right.attachments);
+  const attachmentsEqual =
+    leftAttachments.length === rightAttachments.length &&
+    leftAttachments.every((attachment, index) => {
+      const next = rightAttachments[index];
+      return (
+        attachment.id === next.id &&
+        attachment.name === next.name &&
+        attachment.mime === next.mime &&
+        attachment.size === next.size &&
+        attachment.dataUrl === next.dataUrl
+      );
+    });
+
   return (
     String(left.title || "") === String(right.title || "") &&
     String(left.content || "") === String(right.content || "") &&
-    Boolean(left.deleted) === Boolean(right.deleted)
+    Boolean(left.deleted) === Boolean(right.deleted) &&
+    attachmentsEqual
   );
 }
 
@@ -1397,12 +1487,126 @@ function createNote() {
   state.notes.unshift(note);
   state.selectedId = note.id;
   appendHistoryCommitSafe("create", note);
+  setAttachmentsStatus("Paste images/files into the editor or attach manually.");
   persistNotesSafe();
   render();
 }
 
 function getSelectedNote() {
   return state.notes.find((note) => note.id === state.selectedId && !note.deleted) || null;
+}
+
+async function appendAttachmentsToSelectedNote(files) {
+  if (!isUnlocked()) {
+    return;
+  }
+  const note = getSelectedNote();
+  if (!note) {
+    return;
+  }
+
+  const fileList = Array.from(files || []).filter(Boolean);
+  if (fileList.length === 0) {
+    return;
+  }
+
+  const remainingCapacity = Math.max(0, MAX_ATTACHMENTS_PER_NOTE - note.attachments.length);
+  if (remainingCapacity <= 0) {
+    setAttachmentsStatus(
+      `This note already has the max of ${MAX_ATTACHMENTS_PER_NOTE} attachments.`,
+      true
+    );
+    return;
+  }
+
+  const candidates = fileList.slice(0, remainingCapacity);
+  const nextAttachments = [];
+  const rejected = [];
+
+  for (const file of candidates) {
+    if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+      rejected.push(`${file.name} exceeds ${formatBytes(MAX_ATTACHMENT_SIZE_BYTES)}`);
+      continue;
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      nextAttachments.push(
+        normalizeAttachment({
+          id: uid(),
+          name: file.name || "attachment",
+          mime: file.type || "application/octet-stream",
+          size: file.size,
+          createdAt: nowIso(),
+          dataUrl,
+        })
+      );
+    } catch (error) {
+      console.error(error);
+      rejected.push(`${file.name || "attachment"} could not be read`);
+    }
+  }
+
+  if (nextAttachments.length === 0) {
+    setAttachmentsStatus(rejected.length > 0 ? rejected.join("; ") : "No valid attachments.", true);
+    return;
+  }
+
+  note.attachments = note.attachments.concat(nextAttachments);
+  note.updatedAt = nowIso();
+  appendHistoryCommitSafe("edit", note);
+  persistNotesSafe();
+  render();
+
+  const acceptedMessage =
+    `${nextAttachments.length} attachment${nextAttachments.length === 1 ? "" : "s"} added.`;
+  if (rejected.length > 0) {
+    setAttachmentsStatus(`${acceptedMessage} ${rejected.join("; ")}`, true);
+  } else {
+    setAttachmentsStatus(acceptedMessage);
+  }
+}
+
+function removeAttachmentFromSelectedNote(attachmentId) {
+  if (!isUnlocked()) {
+    return;
+  }
+  const note = getSelectedNote();
+  if (!note) {
+    return;
+  }
+
+  const nextAttachments = note.attachments.filter((attachment) => attachment.id !== attachmentId);
+  if (nextAttachments.length === note.attachments.length) {
+    setAttachmentsStatus("Attachment no longer exists.", true);
+    return;
+  }
+
+  note.attachments = nextAttachments;
+  note.updatedAt = nowIso();
+  appendHistoryCommitSafe("edit", note);
+  persistNotesSafe();
+  render();
+  setAttachmentsStatus("Attachment removed.");
+}
+
+function downloadAttachmentFromSelectedNote(attachmentId) {
+  const note = getSelectedNote();
+  if (!note) {
+    return;
+  }
+
+  const attachment = note.attachments.find((entry) => entry.id === attachmentId) || null;
+  if (!attachment) {
+    setAttachmentsStatus("Attachment no longer exists.", true);
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = attachment.dataUrl;
+  link.download = attachment.name;
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 function applyEditorInputToSelectedNote({ recordHistory = false } = {}) {
@@ -1925,7 +2129,12 @@ function renderNoteList() {
 
     const meta = document.createElement("span");
     meta.className = "note-meta";
-    meta.textContent = formatDate(note.updatedAt);
+    const attachmentCount = Array.isArray(note.attachments) ? note.attachments.length : 0;
+    const attachmentText =
+      attachmentCount > 0
+        ? ` · ${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`
+        : "";
+    meta.textContent = `${formatDate(note.updatedAt)}${attachmentText}`;
 
     button.appendChild(title);
     button.appendChild(meta);
@@ -1945,6 +2154,68 @@ function renderEditor() {
   elements.noteTitleInput.value = note.title;
   elements.noteContentInput.value = note.content;
   elements.previewOutput.innerHTML = renderMarkdown(note.content);
+}
+
+function renderAttachmentsForSelectedNote() {
+  elements.attachmentsList.innerHTML = "";
+  const note = getSelectedNote();
+  if (!note) {
+    setAttachmentsStatus("Select a note to manage attachments.");
+    return;
+  }
+
+  if (!Array.isArray(note.attachments) || note.attachments.length === 0) {
+    setAttachmentsStatus("Paste images/files into the editor or attach manually.");
+    return;
+  }
+
+  for (const attachment of note.attachments) {
+    const listItem = document.createElement("li");
+    listItem.className = "attachment-item";
+
+    const meta = document.createElement("div");
+    meta.className = "attachment-meta";
+
+    const name = document.createElement("span");
+    name.className = "attachment-name";
+    name.textContent = attachment.name;
+
+    const info = document.createElement("span");
+    info.className = "attachment-info";
+    info.textContent = `${attachment.mime} · ${formatBytes(attachment.size)} · ${formatDate(attachment.createdAt)}`;
+
+    meta.append(name, info);
+    listItem.appendChild(meta);
+
+    if (isImageAttachment(attachment)) {
+      const image = document.createElement("img");
+      image.className = "attachment-image";
+      image.src = attachment.dataUrl;
+      image.alt = attachment.name;
+      image.loading = "lazy";
+      listItem.appendChild(image);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "attachment-actions";
+
+    const downloadButton = document.createElement("button");
+    downloadButton.type = "button";
+    downloadButton.dataset.attachmentDownloadId = attachment.id;
+    downloadButton.textContent = "Download";
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.dataset.attachmentRemoveId = attachment.id;
+    removeButton.textContent = "Remove";
+
+    actions.append(downloadButton, removeButton);
+    listItem.appendChild(actions);
+    elements.attachmentsList.appendChild(listItem);
+  }
+
+  const count = note.attachments.length;
+  setAttachmentsStatus(`${count} attachment${count === 1 ? "" : "s"} on this note.`);
 }
 
 function isUnlocked() {
@@ -2065,6 +2336,8 @@ function render() {
   elements.searchInput.disabled = locked;
   elements.noteTitleInput.disabled = locked;
   elements.noteContentInput.disabled = locked;
+  elements.attachFilesBtn.disabled = locked;
+  elements.attachFilesInput.disabled = locked;
   elements.newNoteBtn.disabled = locked;
 
   if (locked) {
@@ -2072,9 +2345,12 @@ function render() {
     elements.noteTitleInput.value = "";
     elements.noteContentInput.value = "";
     elements.previewOutput.innerHTML = "<p class=\"muted\">Locked.</p>";
+    elements.attachmentsList.innerHTML = "";
+    setAttachmentsStatus("Unlock to view attachments.");
   } else {
     renderNoteList();
     renderEditor();
+    renderAttachmentsForSelectedNote();
   }
 
   renderCryptoState();
@@ -2566,6 +2842,45 @@ function wireEvents() {
     }
     elements.previewOutput.innerHTML = renderMarkdown(elements.noteContentInput.value);
     saveEditorChanges();
+  });
+
+  elements.noteContentInput.addEventListener("paste", (event) => {
+    if (!isUnlocked()) {
+      return;
+    }
+    const files = event.clipboardData ? Array.from(event.clipboardData.files || []) : [];
+    if (files.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    appendAttachmentsToSelectedNote(files);
+  });
+
+  elements.attachFilesBtn.addEventListener("click", () => {
+    if (!isUnlocked()) {
+      return;
+    }
+    elements.attachFilesInput.click();
+  });
+
+  elements.attachFilesInput.addEventListener("change", (event) => {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    appendAttachmentsToSelectedNote(files).finally(() => {
+      elements.attachFilesInput.value = "";
+    });
+  });
+
+  elements.attachmentsList.addEventListener("click", (event) => {
+    const downloadButton = event.target.closest("button[data-attachment-download-id]");
+    if (downloadButton) {
+      downloadAttachmentFromSelectedNote(downloadButton.dataset.attachmentDownloadId);
+      return;
+    }
+
+    const removeButton = event.target.closest("button[data-attachment-remove-id]");
+    if (removeButton) {
+      removeAttachmentFromSelectedNote(removeButton.dataset.attachmentRemoveId);
+    }
   });
 
   elements.unlockBtn.addEventListener("click", () => {

@@ -193,6 +193,74 @@ textarea {
   color: var(--muted);
 }
 
+.attachments-panel {
+  margin-top: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  padding: 0.6rem;
+  background: var(--surface);
+}
+
+.attachments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.attachments-header h2 {
+  font-size: 0.86rem;
+}
+
+.attachments-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.attachment-item {
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.45rem;
+  background: var(--panel);
+  display: grid;
+  gap: 0.35rem;
+}
+
+.attachment-meta {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.attachment-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.attachment-info {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.attachment-image {
+  max-height: 9rem;
+  width: auto;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+}
+
+.attachment-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
 .muted {
   margin: 0.4rem 0 0.7rem;
   color: var(--muted);

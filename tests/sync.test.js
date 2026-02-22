@@ -193,6 +193,7 @@ test("sync request body never includes note plaintext", async () => {
   const syncApi = context.JournalSync;
   const validators = createValidators();
   const plaintextSentinel = "__SYNC_PLAINTEXT_SENTINEL::do-not-leak__";
+  const attachmentNameSentinel = "__PRIVATE_ATTACHMENT_NAME__";
 
   const derived = await cryptoApi.deriveSessionKey("correct horse battery staple", { iterations: 5000 });
   const encryptedNotesPayload = await cryptoApi.encryptString(
@@ -203,6 +204,16 @@ test("sync request body never includes note plaintext", async () => {
         content: plaintextSentinel,
         updatedAt: "2026-02-18T20:00:00.000Z",
         deleted: false,
+        attachments: [
+          {
+            id: "att-1",
+            name: attachmentNameSentinel,
+            mime: "text/plain",
+            size: 12,
+            createdAt: "2026-02-18T20:00:00.000Z",
+            dataUrl: "data:text/plain;base64,c2VjcmV0LWF0dGFjaG1lbnQ=",
+          },
+        ],
       },
     ]),
     derived.key
@@ -247,8 +258,10 @@ test("sync request body never includes note plaintext", async () => {
   await adapter.sync(request);
 
   assert.equal(capturedBody.includes(plaintextSentinel), false);
+  assert.equal(capturedBody.includes(attachmentNameSentinel), false);
   assert.equal(/"title"\s*:/.test(capturedBody), false);
   assert.equal(/"content"\s*:/.test(capturedBody), false);
+  assert.equal(/"attachments"\s*:/.test(capturedBody), false);
 });
 
 test("createRestAdapter rejects outgoing requests that include plaintext fields", async () => {
