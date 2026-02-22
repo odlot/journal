@@ -47,6 +47,15 @@
           placeholder="# Start writing..."
           spellcheck="false"
         ></textarea>
+        <div class="attachments-panel">
+          <div class="attachments-header">
+            <h2>Attachments</h2>
+            <button id="attach-files-btn" type="button">Attach Files</button>
+          </div>
+          <input id="attach-files-input" class="hidden" type="file" multiple />
+          <ul id="attachments-list" class="attachments-list"></ul>
+          <p id="attachments-status" class="muted">Paste images/files into the editor or attach manually.</p>
+        </div>
       </section>
 
       <section class="panel preview-panel">
