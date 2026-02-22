@@ -42,6 +42,8 @@ const elements = {
   deleteNoteBtn: document.getElementById("delete-note-btn"),
   openHistoryBtn: document.getElementById("open-history-btn"),
   openDeletedNotesBtn: document.getElementById("open-deleted-notes-btn"),
+  exitTimeTravelBtn: document.getElementById("exit-time-travel-btn"),
+  timeTravelBadge: document.getElementById("time-travel-badge"),
   openSettingsBtn: document.getElementById("open-settings-btn"),
   openSettingsOverlayBtn: document.getElementById("open-settings-overlay-btn"),
   historyView: document.getElementById("history-view"),
@@ -51,6 +53,8 @@ const elements = {
   historyNoteTitle: document.getElementById("history-note-title"),
   historyList: document.getElementById("history-list"),
   historyStatus: document.getElementById("history-status"),
+  historyDetailMeta: document.getElementById("history-detail-meta"),
+  historyDiffOutput: document.getElementById("history-diff-output"),
   deletedNotesView: document.getElementById("deleted-notes-view"),
   deletedNotesCard: document.getElementById("deleted-notes-card"),
   deletedNotesBackdrop: document.getElementById("deleted-notes-backdrop"),
@@ -112,6 +116,10 @@ let previewVisible = true;
 const state = {
   notes: [],
   history: [],
+  historyUi: {
+    selectedCommitId: null,
+    timeTravelCommitId: null,
+  },
   selectedId: null,
   searchQuery: "",
   ui: {
@@ -503,6 +511,7 @@ function focusSearchInput() {
 function handleKeyboardShortcut(event) {
   if (
     !isUnlocked() ||
+    isTimeTravelActive() ||
     event.defaultPrevented ||
     !isShortcutModifierPressed(event) ||
     elements.settingsView.getAttribute("aria-hidden") !== "true" ||
@@ -1437,6 +1446,8 @@ function resetSessionNotes() {
   state.notes = [];
   state.selectedId = null;
   state.searchQuery = "";
+  state.historyUi.timeTravelCommitId = null;
+  state.historyUi.selectedCommitId = null;
   elements.searchInput.value = "";
 }
 
@@ -1483,6 +1494,9 @@ async function loadNotesForActiveSession() {
 }
 
 function createNote() {
+  if (isTimeTravelActive()) {
+    return;
+  }
   const note = normalizeNote({ title: "Untitled", content: "", deleted: false });
   state.notes.unshift(note);
   state.selectedId = note.id;
@@ -1496,8 +1510,16 @@ function getSelectedNote() {
   return state.notes.find((note) => note.id === state.selectedId && !note.deleted) || null;
 }
 
+function getDisplayedEditorNote() {
+  const timeTravelCommit = getActiveTimeTravelCommit();
+  if (!timeTravelCommit) {
+    return getSelectedNote();
+  }
+  return normalizeNote(timeTravelCommit.note);
+}
+
 async function appendAttachmentsToSelectedNote(files) {
-  if (!isUnlocked()) {
+  if (!isUnlocked() || isTimeTravelActive()) {
     return;
   }
   const note = getSelectedNote();
@@ -1567,7 +1589,7 @@ async function appendAttachmentsToSelectedNote(files) {
 }
 
 function removeAttachmentFromSelectedNote(attachmentId) {
-  if (!isUnlocked()) {
+  if (!isUnlocked() || isTimeTravelActive()) {
     return;
   }
   const note = getSelectedNote();
@@ -1590,7 +1612,7 @@ function removeAttachmentFromSelectedNote(attachmentId) {
 }
 
 function downloadAttachmentFromSelectedNote(attachmentId) {
-  const note = getSelectedNote();
+  const note = getDisplayedEditorNote();
   if (!note) {
     return;
   }
@@ -1610,7 +1632,7 @@ function downloadAttachmentFromSelectedNote(attachmentId) {
 }
 
 function applyEditorInputToSelectedNote({ recordHistory = false } = {}) {
-  if (!isUnlocked()) {
+  if (!isUnlocked() || isTimeTravelActive()) {
     return false;
   }
   const note = getSelectedNote();
@@ -1639,6 +1661,9 @@ function flushEditorIntoSelectedNote() {
 }
 
 function deleteSelectedNote() {
+  if (isTimeTravelActive()) {
+    return;
+  }
   const activeNotes = getActiveNotes();
   if (activeNotes.length <= 1) {
     return;
@@ -1662,7 +1687,7 @@ function isDeleteConfirmOpen() {
 }
 
 function openDeleteConfirmModal() {
-  if (!isUnlocked() || getActiveNotes().length <= 1) {
+  if (!isUnlocked() || isTimeTravelActive() || getActiveNotes().length <= 1) {
     return;
   }
   const noteToDelete = getSelectedNote();
@@ -1814,6 +1839,164 @@ function formatHistoryAction(action) {
   }
 }
 
+function getHistoryCommitById(commitId) {
+  return state.history.find((entry) => entry.commitId === commitId) || null;
+}
+
+function getActiveTimeTravelCommit() {
+  const commitId = state.historyUi.timeTravelCommitId;
+  if (!commitId) {
+    return null;
+  }
+  return getHistoryCommitById(commitId);
+}
+
+function isTimeTravelActive() {
+  return Boolean(getActiveTimeTravelCommit());
+}
+
+function lineDiff(previousText, nextText) {
+  const beforeLines = String(previousText || "").split(/\r?\n/);
+  const afterLines = String(nextText || "").split(/\r?\n/);
+  const lines = [];
+  const maxLength = Math.max(beforeLines.length, afterLines.length);
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const before = beforeLines[index];
+    const after = afterLines[index];
+    if (before === after) {
+      if (before !== undefined) {
+        lines.push(`  ${before}`);
+      }
+      continue;
+    }
+    if (before !== undefined) {
+      lines.push(`- ${before}`);
+    }
+    if (after !== undefined) {
+      lines.push(`+ ${after}`);
+    }
+  }
+
+  return lines;
+}
+
+function formatAttachmentNames(attachments) {
+  return normalizeAttachmentsArray(attachments).map((attachment) => attachment.name);
+}
+
+function historyParentCommitFor(commit) {
+  if (!commit || !commit.parentCommitId) {
+    return null;
+  }
+  return getHistoryCommitById(commit.parentCommitId);
+}
+
+function buildHistoryDiffText(commit) {
+  if (!commit) {
+    return "(No revision selected)";
+  }
+
+  const parent = historyParentCommitFor(commit);
+  const previousNote = parent ? normalizeNote(parent.note) : null;
+  const currentNote = normalizeNote(commit.note);
+
+  const output = [];
+  output.push(`Action: ${formatHistoryAction(commit.action)}`);
+  output.push(`Created: ${formatDate(commit.createdAt)}`);
+  output.push("");
+
+  const beforeTitle = previousNote ? previousNote.title : "";
+  const afterTitle = currentNote.title;
+  if (beforeTitle !== afterTitle) {
+    output.push(`- title: ${beforeTitle || "(empty)"}`);
+    output.push(`+ title: ${afterTitle || "(empty)"}`);
+  } else {
+    output.push(`  title: ${afterTitle || "(empty)"}`);
+  }
+
+  const beforeDeleted = previousNote ? previousNote.deleted : false;
+  if (beforeDeleted !== currentNote.deleted) {
+    output.push(`- deleted: ${beforeDeleted}`);
+    output.push(`+ deleted: ${currentNote.deleted}`);
+  } else {
+    output.push(`  deleted: ${currentNote.deleted}`);
+  }
+
+  const beforeAttachments = previousNote ? formatAttachmentNames(previousNote.attachments) : [];
+  const afterAttachments = formatAttachmentNames(currentNote.attachments);
+  const addedAttachments = afterAttachments.filter((name) => !beforeAttachments.includes(name));
+  const removedAttachments = beforeAttachments.filter((name) => !afterAttachments.includes(name));
+  output.push(`  attachments: ${afterAttachments.length}`);
+  if (addedAttachments.length > 0) {
+    output.push(`+ attachments added: ${addedAttachments.join(", ")}`);
+  }
+  if (removedAttachments.length > 0) {
+    output.push(`- attachments removed: ${removedAttachments.join(", ")}`);
+  }
+
+  output.push("");
+  output.push("Content diff:");
+  const contentChanges = lineDiff(previousNote ? previousNote.content : "", currentNote.content);
+  if (contentChanges.length === 0) {
+    output.push("  (No content changes)");
+  } else {
+    output.push(...contentChanges.slice(0, 180));
+    if (contentChanges.length > 180) {
+      output.push("  ... diff truncated ...");
+    }
+  }
+
+  return output.join("\n");
+}
+
+function setSelectedHistoryCommit(commitId) {
+  state.historyUi.selectedCommitId = commitId || null;
+}
+
+function clearSelectedHistoryCommit() {
+  state.historyUi.selectedCommitId = null;
+}
+
+function exitTimeTravelMode({ keepSelection = true } = {}) {
+  state.historyUi.timeTravelCommitId = null;
+  if (!keepSelection) {
+    clearSelectedHistoryCommit();
+  }
+  render();
+}
+
+function enterTimeTravelMode(commitId) {
+  if (!isUnlocked()) {
+    return;
+  }
+  const commit = getHistoryCommitById(commitId);
+  if (!commit) {
+    setHistoryStatus("Selected revision was not found.", true);
+    return;
+  }
+
+  state.selectedId = commit.noteId;
+  state.historyUi.selectedCommitId = commit.commitId;
+  state.historyUi.timeTravelCommitId = commit.commitId;
+  closeHistoryView({ restoreFocus: false });
+  render();
+}
+
+function renderHistoryCommitDetail() {
+  const commitId = state.historyUi.selectedCommitId;
+  const commit = commitId ? getHistoryCommitById(commitId) : null;
+  if (!commit) {
+    elements.historyDetailMeta.textContent = "Select a revision to inspect differences.";
+    elements.historyDiffOutput.textContent = "(No revision selected)";
+    return;
+  }
+
+  elements.historyDetailMeta.textContent =
+    `${formatHistoryAction(commit.action)} · ${formatDate(commit.createdAt)} · commit ${commit.commitId.slice(0, 8)}`;
+  elements.historyDiffOutput.textContent = buildHistoryDiffText(commit);
+}
+
 function noteHistoryCommitsFor(noteId) {
   const commits = [];
   for (let i = state.history.length - 1; i >= 0; i -= 1) {
@@ -1831,6 +2014,8 @@ function renderHistoryForSelectedNote() {
   if (!selectedNote) {
     elements.historyNoteTitle.textContent = "No active note selected.";
     setHistoryStatus("Select a note to inspect history.");
+    clearSelectedHistoryCommit();
+    renderHistoryCommitDetail();
     return;
   }
 
@@ -1839,6 +2024,8 @@ function renderHistoryForSelectedNote() {
   const commits = noteHistoryCommitsFor(selectedNote.id);
   if (commits.length === 0) {
     setHistoryStatus("No history yet for this note.");
+    clearSelectedHistoryCommit();
+    renderHistoryCommitDetail();
     return;
   }
 
@@ -1846,9 +2033,19 @@ function renderHistoryForSelectedNote() {
     `${commits.length} revision${commits.length === 1 ? "" : "s"} available.`
   );
 
+  const selectedCommitStillValid = commits.some(
+    (commit) => commit.commitId === state.historyUi.selectedCommitId
+  );
+  if (!selectedCommitStillValid) {
+    setSelectedHistoryCommit(commits[0].commitId);
+  }
+
   for (const commit of commits) {
     const listItem = document.createElement("li");
     listItem.className = "history-item";
+    if (commit.commitId === state.historyUi.selectedCommitId) {
+      listItem.classList.add("active");
+    }
 
     const meta = document.createElement("div");
     meta.className = "history-meta";
@@ -1869,16 +2066,32 @@ function renderHistoryForSelectedNote() {
         : previewTitle;
     }
 
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+
+    const viewDiffButton = document.createElement("button");
+    viewDiffButton.type = "button";
+    viewDiffButton.dataset.historySelectCommitId = commit.commitId;
+    viewDiffButton.textContent = "View Diff";
+
+    const travelButton = document.createElement("button");
+    travelButton.type = "button";
+    travelButton.dataset.historyTravelCommitId = commit.commitId;
+    travelButton.textContent = "Time Travel";
+
     const restoreButton = document.createElement("button");
     restoreButton.type = "button";
     restoreButton.dataset.historyCommitId = commit.commitId;
     restoreButton.textContent = "Restore";
     restoreButton.disabled = Boolean(commit.note.deleted);
 
+    actions.append(viewDiffButton, travelButton, restoreButton);
     meta.append(actionLine, previewLine);
-    listItem.append(meta, restoreButton);
+    listItem.append(meta, actions);
     elements.historyList.appendChild(listItem);
   }
+
+  renderHistoryCommitDetail();
 }
 
 function openHistoryView() {
@@ -1920,6 +2133,8 @@ function restoreNoteFromHistoryCommit(commitId) {
   }
 
   state.selectedId = restoredNote.id;
+  state.historyUi.timeTravelCommitId = null;
+  state.historyUi.selectedCommitId = commitId;
   appendHistoryCommitSafe("restore", restoredNote);
   persistNotesSafe();
   render();
@@ -2144,7 +2359,7 @@ function renderNoteList() {
 }
 
 function renderEditor() {
-  const note = getSelectedNote();
+  const note = getDisplayedEditorNote();
   if (!note) {
     elements.noteTitleInput.value = "";
     elements.noteContentInput.value = "";
@@ -2158,7 +2373,7 @@ function renderEditor() {
 
 function renderAttachmentsForSelectedNote() {
   elements.attachmentsList.innerHTML = "";
-  const note = getSelectedNote();
+  const note = getDisplayedEditorNote();
   if (!note) {
     setAttachmentsStatus("Select a note to manage attachments.");
     return;
@@ -2208,6 +2423,7 @@ function renderAttachmentsForSelectedNote() {
     removeButton.type = "button";
     removeButton.dataset.attachmentRemoveId = attachment.id;
     removeButton.textContent = "Remove";
+    removeButton.disabled = isTimeTravelActive();
 
     actions.append(downloadButton, removeButton);
     listItem.appendChild(actions);
@@ -2215,7 +2431,8 @@ function renderAttachmentsForSelectedNote() {
   }
 
   const count = note.attachments.length;
-  setAttachmentsStatus(`${count} attachment${count === 1 ? "" : "s"} on this note.`);
+  const suffix = isTimeTravelActive() ? " (read-only time travel)" : "";
+  setAttachmentsStatus(`${count} attachment${count === 1 ? "" : "s"} on this note${suffix}.`);
 }
 
 function isUnlocked() {
@@ -2323,6 +2540,8 @@ function renderThemeState() {
 function render() {
   const locked = !isUnlocked();
   const needsSetup = !state.crypto.hasPassphrase;
+  const timeTravelCommit = getActiveTimeTravelCommit();
+  const timeTravelActive = Boolean(timeTravelCommit);
 
   renderSidebarState();
   renderPreviewState();
@@ -2334,11 +2553,20 @@ function render() {
     : "Unlock in Settings to view and edit notes.";
   elements.searchInput.value = state.searchQuery;
   elements.searchInput.disabled = locked;
-  elements.noteTitleInput.disabled = locked;
-  elements.noteContentInput.disabled = locked;
-  elements.attachFilesBtn.disabled = locked;
-  elements.attachFilesInput.disabled = locked;
-  elements.newNoteBtn.disabled = locked;
+  elements.noteTitleInput.disabled = locked || timeTravelActive;
+  elements.noteContentInput.disabled = locked || timeTravelActive;
+  elements.attachFilesBtn.disabled = locked || timeTravelActive;
+  elements.attachFilesInput.disabled = locked || timeTravelActive;
+  elements.newNoteBtn.disabled = locked || timeTravelActive;
+  elements.exitTimeTravelBtn.classList.toggle("hidden", !timeTravelActive);
+  elements.timeTravelBadge.classList.toggle("hidden", !timeTravelActive);
+  if (timeTravelActive) {
+    elements.timeTravelBadge.textContent = `Viewing ${formatHistoryAction(
+      timeTravelCommit.action
+    )} revision from ${formatDate(timeTravelCommit.createdAt)}`;
+  } else {
+    elements.timeTravelBadge.textContent = "";
+  }
 
   if (locked) {
     elements.noteList.innerHTML = "";
@@ -2358,7 +2586,8 @@ function render() {
   const deletedCount = state.notes.filter((note) => note.deleted).length;
   elements.openHistoryBtn.disabled = locked || !getSelectedNote();
   elements.openDeletedNotesBtn.disabled = locked || deletedCount <= 0;
-  elements.deleteNoteBtn.disabled = locked || getActiveNotes().length <= 1 || isDeleteConfirmOpen();
+  elements.deleteNoteBtn.disabled =
+    locked || timeTravelActive || getActiveNotes().length <= 1 || isDeleteConfirmOpen();
 
   if (locked && isHistoryOpen()) {
     closeHistoryView({ restoreFocus: false });
@@ -2398,6 +2627,8 @@ function lockCryptoSession(reasonText = "Locked") {
   state.crypto.rotating = false;
   state.crypto.wiping = false;
   state.crypto.statusText = reasonText;
+  state.historyUi.selectedCommitId = null;
+  state.historyUi.timeTravelCommitId = null;
   elements.passphraseInput.value = "";
   elements.passphraseConfirmInput.value = "";
   clearChangePassphraseInputs();
@@ -2740,6 +2971,19 @@ function wireEvents() {
   });
 
   elements.historyList.addEventListener("click", (event) => {
+    const viewButton = event.target.closest("button[data-history-select-commit-id]");
+    if (viewButton) {
+      setSelectedHistoryCommit(viewButton.dataset.historySelectCommitId);
+      renderHistoryForSelectedNote();
+      return;
+    }
+
+    const travelButton = event.target.closest("button[data-history-travel-commit-id]");
+    if (travelButton) {
+      enterTimeTravelMode(travelButton.dataset.historyTravelCommitId);
+      return;
+    }
+
     const button = event.target.closest("button[data-history-commit-id]");
     if (!button) {
       return;
@@ -2820,6 +3064,9 @@ function wireEvents() {
     const button = event.target.closest("button[data-note-id]");
     if (!button) {
       return;
+    }
+    if (isTimeTravelActive()) {
+      state.historyUi.timeTravelCommitId = null;
     }
     state.selectedId = button.dataset.noteId;
     render();
@@ -2981,6 +3228,10 @@ function wireEvents() {
     state.ui.theme = normalizeTheme(event.target.value);
     persistThemePreference();
     renderThemeState();
+  });
+
+  elements.exitTimeTravelBtn.addEventListener("click", () => {
+    exitTimeTravelMode();
   });
 
   document.addEventListener("keydown", (event) => {

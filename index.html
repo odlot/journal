@@ -26,6 +26,8 @@
         <button id="delete-note-btn" type="button">Delete</button>
         <button id="open-history-btn" type="button">History</button>
         <button id="open-deleted-notes-btn" type="button">Deleted</button>
+        <button id="exit-time-travel-btn" class="hidden" type="button">Exit Time Travel</button>
+        <span id="time-travel-badge" class="time-travel-badge hidden"></span>
         <button id="toggle-preview-btn" type="button" aria-pressed="false">Hide Preview</button>
         <button id="open-settings-btn" type="button">Settings</button>
       </div>
@@ -238,6 +240,11 @@
         <p id="history-note-title" class="muted">No active note selected.</p>
         <ul id="history-list" class="history-list"></ul>
         <p id="history-status" class="muted">No history yet.</p>
+        <section class="history-detail">
+          <h2>Revision Diff</h2>
+          <p id="history-detail-meta" class="muted">Select a revision to inspect differences.</p>
+          <pre id="history-diff-output" class="history-diff">(No revision selected)</pre>
+        </section>
       </section>
     </div>
 
