@@ -20,7 +20,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - Clear local data wipe action for browser-stored notes/keys/sync settings
 - Manual cloud sync with REST adapter and encrypted payload-only protocol
 - Automatic retry for transient sync network/server failures (bounded backoff)
-- Playwright E2E coverage for sync retry recovery on transient failures
+- Playwright E2E coverage for sync retry recovery and offline recovery workflows
 - Conflict detection with keep-both merge and local/server resolution controls
 - Encrypted local commit history with per-note restore UI and deleted-note recovery view
 - Unit tests for crypto and sync helper modules (run via validation script)
@@ -35,6 +35,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - `src/app.js`
 - `tests/crypto.test.js`
 - `tests/sync.test.js`
+- `tests/e2e/offline-recovery.spec.js`
 - `tests/e2e/sync-retry-recovery.spec.js`
 - `playwright.config.js`
 - `ARCHITECTURE.md`
