@@ -1,7 +1,7 @@
 {
   "name": "journal",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Privacy-first local-first encrypted journal",
   "scripts": {
     "test:e2e": "node scripts/run-playwright-e2e.js",
