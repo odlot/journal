@@ -26,6 +26,7 @@ required_files=(
   "tests/e2e/encrypted-attachments.spec.js"
   "tests/e2e/history-time-travel.spec.js"
   "tests/e2e/offline-recovery.spec.js"
+  "tests/e2e/search-organization.spec.js"
   "tests/e2e/sync-retry-recovery.spec.js"
   "tests/e2e/theme-preference.spec.js"
 )
@@ -48,6 +49,7 @@ node --check tests/e2e/background-sync-status.spec.js
 node --check tests/e2e/encrypted-attachments.spec.js
 node --check tests/e2e/history-time-travel.spec.js
 node --check tests/e2e/offline-recovery.spec.js
+node --check tests/e2e/search-organization.spec.js
 node --check tests/e2e/sync-retry-recovery.spec.js
 node --check tests/e2e/theme-preference.spec.js
 node --test tests/crypto.test.js tests/sync.test.js
