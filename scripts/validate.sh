@@ -21,6 +21,7 @@ required_files=(
   "tests/sync.test.js"
   "tests/e2e/offline-recovery.spec.js"
   "tests/e2e/sync-retry-recovery.spec.js"
+  "tests/e2e/theme-preference.spec.js"
 )
 
 for file in "${required_files[@]}"; do
@@ -37,6 +38,7 @@ node --check scripts/run-playwright-e2e.js
 node --check playwright.config.js
 node --check tests/e2e/offline-recovery.spec.js
 node --check tests/e2e/sync-retry-recovery.spec.js
+node --check tests/e2e/theme-preference.spec.js
 node --test tests/crypto.test.js tests/sync.test.js
 if [[ "${VALIDATE_SKIP_E2E:-0}" != "1" ]]; then
   ./scripts/test-e2e.sh
@@ -48,5 +50,6 @@ grep -Fq 'src="src/sync.js"' index.html
 grep -Fq 'src="src/app.js"' index.html
 grep -Fq 'id="wipe-local-data-btn"' index.html
 grep -Fq 'id="wipe-local-data-status"' index.html
+grep -Fq 'id="theme-select"' index.html
 
 echo "Validation passed."

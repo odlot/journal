@@ -1,11 +1,46 @@
 :root {
   --bg: #f5f4ef;
+  --bg-grad-start: #fff7dc;
   --panel: #fffdf6;
+  --surface: #ffffff;
   --text: #1f1e1a;
   --muted: #5b5648;
   --line: #d7cfbd;
   --accent: #2d6a4f;
   --accent-ink: #ffffff;
+  --code-bg: #f2eee3;
+  --topbar-base: #ffffff;
+  --overlay-base: #ffffff;
+  --muted-error: #8a2d21;
+  --status-locked-bg: #fce6de;
+  --status-locked-text: #8a2d21;
+  --status-unlocked-bg: #e1f4e8;
+  --status-unlocked-text: #1f5a40;
+  --danger: #8a2d21;
+  --danger-ink: #ffffff;
+}
+
+body.theme-dark {
+  color-scheme: dark;
+  --bg: #171b18;
+  --bg-grad-start: #2a342d;
+  --panel: #202622;
+  --surface: #28302a;
+  --text: #e9efe7;
+  --muted: #adb9ac;
+  --line: #3b4740;
+  --accent: #76c59b;
+  --accent-ink: #102118;
+  --code-bg: #1a211c;
+  --topbar-base: #111411;
+  --overlay-base: #0f1310;
+  --muted-error: #ff9f95;
+  --status-locked-bg: #4a2b27;
+  --status-locked-text: #ffb8b0;
+  --status-unlocked-bg: #1f4330;
+  --status-unlocked-text: #b9f1d2;
+  --danger: #d76a5f;
+  --danger-ink: #1a0604;
 }
 
 * {
@@ -15,8 +50,9 @@
 body {
   margin: 0;
   min-height: 100vh;
+  color-scheme: light;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
-  background: radial-gradient(circle at top left, #fff7dc, var(--bg) 45%);
+  background: radial-gradient(circle at top left, var(--bg-grad-start), var(--bg) 45%);
   color: var(--text);
 }
 
@@ -27,7 +63,7 @@ body {
   gap: 1rem;
   padding: 0.9rem 1rem;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--panel) 88%, white);
+  background: color-mix(in srgb, var(--panel) 88%, var(--topbar-base));
   position: sticky;
   top: 0;
   z-index: 10;
@@ -111,7 +147,7 @@ select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 0.45rem;
-  background: #fff;
+  background: var(--surface);
   padding: 0.48rem 0.55rem;
 }
 
@@ -132,12 +168,12 @@ textarea {
 .note-list button {
   width: 100%;
   text-align: left;
-  background: #fff;
+  background: var(--surface);
 }
 
 .note-list button.active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, #fff);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
 }
 
 .note-title {
@@ -159,7 +195,7 @@ textarea {
 }
 
 .muted.error {
-  color: #8a2d21;
+  color: var(--muted-error);
 }
 
 .markdown-preview {
@@ -169,7 +205,7 @@ textarea {
 }
 
 .markdown-preview pre {
-  background: #f2eee3;
+  background: var(--code-bg);
   border: 1px solid var(--line);
   border-radius: 0.45rem;
   padding: 0.55rem;
@@ -177,7 +213,7 @@ textarea {
 }
 
 .markdown-preview code {
-  background: #f2eee3;
+  background: var(--code-bg);
   border-radius: 0.3rem;
   padding: 0.08rem 0.25rem;
 }
@@ -236,9 +272,9 @@ textarea {
 }
 
 #delete-confirm-confirm-btn {
-  background: #8a2d21;
-  border-color: #8a2d21;
-  color: #ffffff;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-ink);
 }
 
 .history-view {
@@ -286,7 +322,7 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 0.45rem;
   padding: 0.5rem 0.55rem;
-  background: #fff;
+  background: var(--surface);
 }
 
 .history-meta {
@@ -368,13 +404,13 @@ textarea {
 }
 
 .status-badge.locked {
-  background: #fce6de;
-  color: #8a2d21;
+  background: var(--status-locked-bg);
+  color: var(--status-locked-text);
 }
 
 .status-badge.unlocked {
-  background: #e1f4e8;
-  color: #1f5a40;
+  background: var(--status-unlocked-bg);
+  color: var(--status-unlocked-text);
 }
 
 #unlock-btn {
@@ -394,7 +430,7 @@ textarea {
   place-content: center;
   justify-items: center;
   gap: 0.6rem;
-  background: color-mix(in srgb, var(--panel) 92%, white);
+  background: color-mix(in srgb, var(--panel) 92%, var(--overlay-base));
   border: 1px solid var(--line);
   border-radius: 0.7rem;
   text-align: center;

@@ -59,7 +59,7 @@
 - [x] Toggle markdown preview visibility
 - [x] Fast search by title/content
 - [x] Mobile-friendly responsive layout
-- [ ] Light/dark theme toggle (local preference only)
+- [x] Light/dark theme toggle (local preference only)
 
 ## 9) Testing and Verification
 

@@ -12,6 +12,7 @@ const SYNC_META_KEY = "journal.sync.meta.v1";
 const AUTO_LOCK_KEY = "journal.crypto.auto_lock_ms.v1";
 const SIDEBAR_COLLAPSED_KEY = "journal.ui.sidebar_collapsed.v1";
 const PREVIEW_VISIBLE_KEY = "journal.ui.preview_visible.v1";
+const THEME_KEY = "journal.ui.theme.v1";
 const KEY_CHECK_KEY = "journal.crypto.key_check.v1";
 const KEY_CHECK_SENTINEL = "journal-key-check-v1";
 const BACKUP_VERSION = 1;
@@ -21,6 +22,7 @@ const DEFAULT_SYNC_MAX_RETRIES = 2;
 const DEFAULT_SYNC_RETRY_DELAY_MS = 250;
 const DEFAULT_SYNC_RETRY_BACKOFF = 2;
 const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
+const ALLOWED_THEMES = new Set(["light", "dark"]);
 const LOCAL_DATA_KEYS = Object.freeze([KEY_CHECK_KEY, AUTO_LOCK_KEY, SYNC_ENDPOINT_KEY, SYNC_META_KEY]);
 const HISTORY_ACTIONS = Object.freeze(new Set(["create", "edit", "delete", "restore"]));
 
@@ -65,6 +67,7 @@ const elements = {
   lockBtn: document.getElementById("lock-btn"),
   cryptoStatus: document.getElementById("crypto-status"),
   autoLockSelect: document.getElementById("auto-lock-select"),
+  themeSelect: document.getElementById("theme-select"),
   changePassphraseWrap: document.getElementById("change-passphrase-wrap"),
   currentPassphraseInput: document.getElementById("current-passphrase-input"),
   newPassphraseInput: document.getElementById("new-passphrase-input"),
@@ -95,6 +98,7 @@ const state = {
   searchQuery: "",
   ui: {
     sidebarCollapsed: false,
+    theme: "light",
   },
   crypto: {
     key: null,
@@ -450,6 +454,18 @@ function togglePreviewVisibility() {
   previewVisible = !previewVisible;
   persistPreviewPreference();
   render();
+}
+
+function normalizeTheme(value) {
+  return ALLOWED_THEMES.has(value) ? value : "light";
+}
+
+function loadThemePreference() {
+  state.ui.theme = normalizeTheme(localStorage.getItem(THEME_KEY));
+}
+
+function persistThemePreference() {
+  localStorage.setItem(THEME_KEY, state.ui.theme);
 }
 
 function isShortcutModifierPressed(event) {
@@ -1948,12 +1964,19 @@ function renderPreviewState() {
   togglePreviewBtn.setAttribute("aria-pressed", previewVisible ? "false" : "true");
 }
 
+function renderThemeState() {
+  const isDarkTheme = state.ui.theme === "dark";
+  document.body.classList.toggle("theme-dark", isDarkTheme);
+  elements.themeSelect.value = state.ui.theme;
+}
+
 function render() {
   const locked = !isUnlocked();
   const needsSetup = !state.crypto.hasPassphrase;
 
   renderSidebarState();
   renderPreviewState();
+  renderThemeState();
   document.body.classList.toggle("app-locked", locked);
   elements.lockedOverlay.classList.toggle("hidden", !locked);
   elements.lockedOverlayMessage.textContent = needsSetup
@@ -2560,6 +2583,12 @@ function wireEvents() {
     renderCryptoState();
   });
 
+  elements.themeSelect.addEventListener("change", (event) => {
+    state.ui.theme = normalizeTheme(event.target.value);
+    persistThemePreference();
+    renderThemeState();
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && isDeleteConfirmOpen()) {
       closeDeleteConfirmModal();
@@ -2594,6 +2623,7 @@ function init() {
   loadAutoLockPreference();
   loadSidebarPreference();
   loadPreviewPreference();
+  loadThemePreference();
   loadKeyCheckRecord();
   loadSyncConfiguration();
   setSyncStatus(syncSummaryText());
