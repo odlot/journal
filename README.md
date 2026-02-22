@@ -23,6 +23,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - Playwright E2E coverage for sync retry recovery and offline recovery workflows
 - Conflict detection with keep-both merge and local/server resolution controls
 - Encrypted local commit history with per-note restore UI and deleted-note recovery view
+- Light/dark theme toggle with local preference persistence
 - Unit tests for crypto and sync helper modules (run via validation script)
 
 ## Structure
@@ -37,6 +38,7 @@ Privacy-first, markdown-first web journal MVP built with vanilla HTML, CSS, and 
 - `tests/sync.test.js`
 - `tests/e2e/offline-recovery.spec.js`
 - `tests/e2e/sync-retry-recovery.spec.js`
+- `tests/e2e/theme-preference.spec.js`
 - `playwright.config.js`
 - `ARCHITECTURE.md`
 - `SECURITY.md`
