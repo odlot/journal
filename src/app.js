@@ -23,6 +23,8 @@ const DEFAULT_AUTO_LOCK_MS = 300000;
 const DEFAULT_SYNC_MAX_RETRIES = 2;
 const DEFAULT_SYNC_RETRY_DELAY_MS = 250;
 const DEFAULT_SYNC_RETRY_BACKOFF = 2;
+const BACKGROUND_SYNC_DELAY_MS = 2000;
+const SYNC_EVENT_LOG_LIMIT = 30;
 const ALLOWED_AUTO_LOCK_MS = new Set([0, 60000, 300000, 900000, 1800000]);
 const ALLOWED_THEMES = new Set(["light", "dark"]);
 const LOCAL_DATA_KEYS = Object.freeze([KEY_CHECK_KEY, AUTO_LOCK_KEY, SYNC_ENDPOINT_KEY, SYNC_META_KEY]);
@@ -105,6 +107,8 @@ const elements = {
   syncEndpointInput: document.getElementById("sync-endpoint-input"),
   syncNowBtn: document.getElementById("sync-now-btn"),
   syncStatus: document.getElementById("sync-status"),
+  syncQueueStatus: document.getElementById("sync-queue-status"),
+  syncEventsList: document.getElementById("sync-events-list"),
   syncConflictWrap: document.getElementById("sync-conflict-wrap"),
   syncConflictText: document.getElementById("sync-conflict-text"),
   syncUseLocalBtn: document.getElementById("sync-use-local-btn"),
@@ -147,6 +151,10 @@ const state = {
     lastSyncedLocalRevision: null,
     lastSyncedAt: null,
     pendingConflict: null,
+    pendingReasons: [],
+    queuedSyncAt: null,
+    queuedTimerId: null,
+    events: [],
   },
 };
 
@@ -599,6 +607,83 @@ function setSyncStatus(message, isError = false) {
   elements.syncStatus.classList.toggle("error", isError);
 }
 
+function pushSyncEvent(message, { isError = false } = {}) {
+  const entry = {
+    id: uid(),
+    createdAt: nowIso(),
+    message: String(message || ""),
+    isError: Boolean(isError),
+  };
+  state.sync.events.unshift(entry);
+  if (state.sync.events.length > SYNC_EVENT_LOG_LIMIT) {
+    state.sync.events.length = SYNC_EVENT_LOG_LIMIT;
+  }
+}
+
+function clearQueuedBackgroundSyncTimer() {
+  if (state.sync.queuedTimerId !== null) {
+    clearTimeout(state.sync.queuedTimerId);
+    state.sync.queuedTimerId = null;
+  }
+}
+
+function queueBackgroundSync(reason, { delayMs = BACKGROUND_SYNC_DELAY_MS } = {}) {
+  if (typeof reason === "string" && reason.length > 0) {
+    if (!state.sync.pendingReasons.includes(reason)) {
+      state.sync.pendingReasons.push(reason);
+    }
+  }
+
+  clearQueuedBackgroundSyncTimer();
+  state.sync.queuedSyncAt = new Date(Date.now() + delayMs).toISOString();
+  state.sync.queuedTimerId = setTimeout(() => {
+    state.sync.queuedTimerId = null;
+    runQueuedBackgroundSync();
+  }, delayMs);
+  renderSyncState();
+}
+
+function hasSyncPreconditionsForBackground() {
+  const endpoint = normalizeSyncEndpoint(state.sync.endpoint);
+  return (
+    !state.sync.busy &&
+    !state.sync.pendingConflict &&
+    state.crypto.hasPassphrase &&
+    Boolean(endpoint) &&
+    isValidSyncEndpoint(endpoint)
+  );
+}
+
+async function runQueuedBackgroundSync() {
+  const queuedReasons = state.sync.pendingReasons.slice();
+  if (queuedReasons.length === 0) {
+    state.sync.queuedSyncAt = null;
+    renderSyncState();
+    return;
+  }
+  if (!hasSyncPreconditionsForBackground()) {
+    state.sync.queuedSyncAt = null;
+    renderSyncState();
+    return;
+  }
+
+  const reasonText = queuedReasons.join(", ");
+  pushSyncEvent(`Background sync started (${reasonText}).`);
+  renderSyncState();
+
+  const succeeded = await syncNow({ trigger: "background-queued" });
+  if (succeeded) {
+    state.sync.pendingReasons = [];
+    state.sync.queuedSyncAt = null;
+    pushSyncEvent(`Background sync completed (${reasonText}).`);
+  } else {
+    pushSyncEvent(`Background sync failed (${reasonText}).`, { isError: true });
+    queueBackgroundSync("retry-after-failure", { delayMs: 5000 });
+    return;
+  }
+  renderSyncState();
+}
+
 function isValidKeyCheckRecord(record) {
   return (
     record &&
@@ -1037,6 +1122,7 @@ function clearPendingConflict() {
 }
 
 function resetSyncStateForFreshSetup() {
+  clearQueuedBackgroundSyncTimer();
   state.sync.endpoint = "";
   state.sync.statusText = "Sync not configured.";
   state.sync.busy = false;
@@ -1045,6 +1131,9 @@ function resetSyncStateForFreshSetup() {
   state.sync.lastSyncedLocalRevision = null;
   state.sync.lastSyncedAt = null;
   state.sync.pendingConflict = null;
+  state.sync.pendingReasons = [];
+  state.sync.queuedSyncAt = null;
+  state.sync.events = [];
 }
 
 function removeStoredLocalDataKeys() {
@@ -1175,6 +1264,9 @@ function syncSummaryText() {
   if (state.sync.pendingConflict) {
     return "Pending conflict resolution.";
   }
+  if (state.sync.pendingReasons.length > 0) {
+    return `Queued background sync (${state.sync.pendingReasons.length} pending reason${state.sync.pendingReasons.length === 1 ? "" : "s"}).`;
+  }
   if (!hasSyncModule()) {
     return "Sync module unavailable.";
   }
@@ -1242,41 +1334,46 @@ async function applySyncedServerState(serverEncryptedState) {
   }
 }
 
-async function syncNow() {
+async function syncNow({ trigger = "manual" } = {}) {
+  const isManual = trigger === "manual";
   if (state.sync.busy) {
-    return;
+    return false;
   }
   if (state.sync.pendingConflict) {
     setSyncStatus("Resolve pending conflict before syncing again.", true);
     renderSyncState();
-    return;
+    return false;
   }
   if (!hasSyncModule()) {
     setSyncStatus("Sync module unavailable.", true);
     renderSyncState();
-    return;
+    return false;
   }
 
   const endpoint = normalizeSyncEndpoint(state.sync.endpoint);
   if (!endpoint || !isValidSyncEndpoint(endpoint)) {
     setSyncStatus("Enter a valid sync endpoint URL.", true);
     renderSyncState();
-    return;
+    return false;
   }
   if (!state.crypto.hasPassphrase) {
     setSyncStatus("Set a passphrase before syncing.", true);
     renderSyncState();
-    return;
+    return false;
   }
 
   state.sync.busy = true;
-  setSyncStatus("Syncing...");
+  setSyncStatus(isManual ? "Syncing..." : "Background syncing...");
+  if (isManual) {
+    pushSyncEvent("Manual sync started.");
+  }
   renderSyncState();
 
+  let succeeded = false;
   try {
     if (isUnlocked()) {
       flushEditorIntoSelectedNote();
-      await persistNotes();
+      await persistNotes({ queueSync: false });
     }
 
     const localSyncState = await buildLocalSyncState();
@@ -1338,9 +1435,16 @@ async function syncNow() {
 
     state.sync.knownServerRevision = response.serverRevision || state.sync.knownServerRevision;
     state.sync.lastSyncedAt = nowIso();
+    state.sync.pendingReasons = [];
+    state.sync.queuedSyncAt = null;
+    clearQueuedBackgroundSyncTimer();
     persistSyncMeta();
     if (!state.sync.pendingConflict) {
       setSyncStatus(`Sync completed ${formatDate(state.sync.lastSyncedAt)}.`);
+    }
+    succeeded = true;
+    if (isManual) {
+      pushSyncEvent("Manual sync completed.");
     }
   } catch (error) {
     console.error(error);
@@ -1348,13 +1452,17 @@ async function syncNow() {
       ? error.message
       : "Sync failed.";
     setSyncStatus(message, true);
+    if (isManual) {
+      pushSyncEvent(`Manual sync failed: ${message}`, { isError: true });
+    }
   } finally {
     state.sync.busy = false;
     renderSyncState();
   }
+  return succeeded;
 }
 
-async function persistNotes() {
+async function persistNotes({ queueSync = true } = {}) {
   if (!isUnlocked() || !state.crypto.key || !window.JournalCrypto) {
     return;
   }
@@ -1367,6 +1475,9 @@ async function persistNotes() {
     payload,
   };
   await encryptedNotesStorage.setEncryptedNotesRecord(record);
+  if (queueSync) {
+    queueBackgroundSync("local-notes-updated");
+  }
 }
 
 function persistNotesSafe() {
@@ -2511,6 +2622,37 @@ function renderSyncState() {
     elements.syncConflictText.textContent = state.sync.pendingConflict.summary;
   }
 
+  const pendingCount = state.sync.pendingReasons.length;
+  if (pendingCount === 0) {
+    elements.syncQueueStatus.textContent = "No queued background sync.";
+  } else if (state.sync.queuedSyncAt) {
+    const nextRunDate = new Date(state.sync.queuedSyncAt);
+    const nextRunText = Number.isNaN(nextRunDate.getTime())
+      ? "soon"
+      : formatDate(nextRunDate.toISOString());
+    elements.syncQueueStatus.textContent =
+      `Queued background sync: ${pendingCount} reason${pendingCount === 1 ? "" : "s"} · next run ${nextRunText}.`;
+  } else {
+    elements.syncQueueStatus.textContent =
+      `Queued background sync: ${pendingCount} reason${pendingCount === 1 ? "" : "s"}.`;
+  }
+
+  elements.syncEventsList.innerHTML = "";
+  if (state.sync.events.length === 0) {
+    const item = document.createElement("li");
+    item.textContent = "No sync events yet.";
+    elements.syncEventsList.appendChild(item);
+  } else {
+    for (const event of state.sync.events) {
+      const item = document.createElement("li");
+      if (event.isError) {
+        item.classList.add("error");
+      }
+      item.textContent = `${formatDate(event.createdAt)} · ${event.message}`;
+      elements.syncEventsList.appendChild(item);
+    }
+  }
+
   if (!state.sync.statusText) {
     setSyncStatus(syncSummaryText());
   } else if (!state.sync.busy && !elements.syncStatus.classList.contains("error")) {
@@ -2827,6 +2969,7 @@ async function rotatePassphrase() {
     state.crypto.statusText = "Unlocked";
     clearChangePassphraseInputs();
     scheduleIdleAutoLock();
+    queueBackgroundSync("passphrase-rotated");
     setChangePassphraseStatus("Passphrase changed and data re-encrypted.");
     setBackupStatus("Backup recommended after passphrase rotation.");
   } catch (error) {
@@ -2924,6 +3067,7 @@ async function importEncryptedBackupFromFile(file) {
     state.crypto.hasPassphrase = true;
     state.crypto.autoLockMs = normalizeAutoLockMs(parsed.autoLockMs);
     persistAutoLockPreference();
+    queueBackgroundSync("backup-imported");
 
     lockCryptoSession("Backup imported. Unlock required");
     openSettings();
@@ -3163,6 +3307,9 @@ function wireEvents() {
     state.sync.endpoint = normalizeSyncEndpoint(event.target.value);
     persistSyncEndpoint();
     setSyncStatus(syncSummaryText());
+    if (state.sync.pendingReasons.length > 0 && isValidSyncEndpoint(state.sync.endpoint)) {
+      queueBackgroundSync("sync-endpoint-updated", { delayMs: 500 });
+    }
     renderSyncState();
   });
 
@@ -3264,6 +3411,12 @@ function wireEvents() {
 
   document.addEventListener("input", () => {
     touchCryptoActivity();
+  });
+
+  window.addEventListener("online", () => {
+    if (state.sync.pendingReasons.length > 0 || hasSyncPreconditionsForBackground()) {
+      queueBackgroundSync("network-reconnected", { delayMs: 500 });
+    }
   });
 }
 
