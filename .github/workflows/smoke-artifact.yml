@@ -39,7 +39,7 @@ jobs:
         run: head -n 40 deploy-manifest.txt
 
       - name: Upload manifest artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: deploy-manifest
           path: deploy-manifest.txt
