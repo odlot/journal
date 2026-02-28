@@ -41,6 +41,7 @@ const FOCUSABLE_SELECTOR = [
 const elements = {
   toggleSidebarBtn: document.getElementById("toggle-sidebar-btn"),
   newNoteBtn: document.getElementById("new-note-btn"),
+  togglePinBtn: document.getElementById("toggle-pin-btn"),
   deleteNoteBtn: document.getElementById("delete-note-btn"),
   openHistoryBtn: document.getElementById("open-history-btn"),
   openDeletedNotesBtn: document.getElementById("open-deleted-notes-btn"),
@@ -78,6 +79,7 @@ const elements = {
   searchInput: document.getElementById("search-input"),
   noteList: document.getElementById("note-list"),
   noteTitleInput: document.getElementById("note-title-input"),
+  noteTagsInput: document.getElementById("note-tags-input"),
   noteContentInput: document.getElementById("note-content-input"),
   attachFilesBtn: document.getElementById("attach-files-btn"),
   attachFilesInput: document.getElementById("attach-files-input"),
@@ -751,13 +753,38 @@ function normalizeAttachmentsArray(rawAttachments) {
     .filter((attachment) => attachment.dataUrl.length > 0);
 }
 
+function normalizeTagValue(tag) {
+  return String(tag || "").trim().toLowerCase();
+}
+
+function normalizeTagsArray(rawTags) {
+  const tags = Array.isArray(rawTags) ? rawTags : [];
+  const unique = [];
+  const seen = new Set();
+  for (const tag of tags) {
+    const normalized = normalizeTagValue(tag);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function parseTagsInputValue(rawValue) {
+  return normalizeTagsArray(String(rawValue || "").split(","));
+}
+
 function normalizeNote(rawNote) {
   return {
     id: String(rawNote.id || uid()),
     title: String(rawNote.title || ""),
+    tags: normalizeTagsArray(rawNote.tags),
     content: String(rawNote.content || ""),
     updatedAt: String(rawNote.updatedAt || nowIso()),
     deleted: Boolean(rawNote.deleted),
+    pinned: Boolean(rawNote.pinned),
     attachments: normalizeAttachmentsArray(rawNote.attachments),
   };
 }
@@ -957,6 +984,8 @@ function noteUpdatedAtMs(note) {
 function notesContentEqual(left, right) {
   const leftAttachments = normalizeAttachmentsArray(left.attachments);
   const rightAttachments = normalizeAttachmentsArray(right.attachments);
+  const leftTags = normalizeTagsArray(left.tags);
+  const rightTags = normalizeTagsArray(right.tags);
   const attachmentsEqual =
     leftAttachments.length === rightAttachments.length &&
     leftAttachments.every((attachment, index) => {
@@ -969,9 +998,14 @@ function notesContentEqual(left, right) {
         attachment.dataUrl === next.dataUrl
       );
     });
+  const tagsEqual =
+    leftTags.length === rightTags.length &&
+    leftTags.every((tag, index) => tag === rightTags[index]);
 
   return (
     String(left.title || "") === String(right.title || "") &&
+    Boolean(left.pinned) === Boolean(right.pinned) &&
+    tagsEqual &&
     String(left.content || "") === String(right.content || "") &&
     Boolean(left.deleted) === Boolean(right.deleted) &&
     attachmentsEqual
@@ -989,6 +1023,7 @@ function createConflictCopy(note, origin) {
     id: uid(),
     title: makeConflictCopyTitle(note.title, origin),
     deleted: false,
+    pinned: false,
     updatedAt: nowIso(),
   });
 }
@@ -1608,7 +1643,13 @@ function createNote() {
   if (isTimeTravelActive()) {
     return;
   }
-  const note = normalizeNote({ title: "Untitled", content: "", deleted: false });
+  const note = normalizeNote({
+    title: "Untitled",
+    tags: [],
+    content: "",
+    deleted: false,
+    pinned: false,
+  });
   state.notes.unshift(note);
   state.selectedId = note.id;
   appendHistoryCommitSafe("create", note);
@@ -1752,13 +1793,18 @@ function applyEditorInputToSelectedNote({ recordHistory = false } = {}) {
   }
 
   const nextTitle = elements.noteTitleInput.value.trim() || "Untitled";
+  const nextTags = parseTagsInputValue(elements.noteTagsInput.value);
   const nextContent = elements.noteContentInput.value;
-  const didChange = note.title !== nextTitle || note.content !== nextContent;
+  const didChange =
+    note.title !== nextTitle ||
+    note.content !== nextContent ||
+    note.tags.join(",") !== nextTags.join(",");
   if (!didChange) {
     return false;
   }
 
   note.title = nextTitle;
+  note.tags = nextTags;
   note.content = nextContent;
   note.updatedAt = nowIso();
   if (recordHistory) {
@@ -1789,6 +1835,21 @@ function deleteSelectedNote() {
   appendHistoryCommitSafe("delete", noteToDelete);
   const nextNote = getActiveNotes().find((note) => note.id !== noteToDelete.id) || null;
   state.selectedId = nextNote ? nextNote.id : null;
+  persistNotesSafe();
+  render();
+}
+
+function togglePinForSelectedNote() {
+  if (!isUnlocked() || isTimeTravelActive()) {
+    return;
+  }
+  const note = getSelectedNote();
+  if (!note) {
+    return;
+  }
+  note.pinned = !note.pinned;
+  note.updatedAt = nowIso();
+  appendHistoryCommitSafe("edit", note);
   persistNotesSafe();
   render();
 }
@@ -2036,6 +2097,18 @@ function buildHistoryDiffText(commit) {
 
   const beforeAttachments = previousNote ? formatAttachmentNames(previousNote.attachments) : [];
   const afterAttachments = formatAttachmentNames(currentNote.attachments);
+  const beforeTags = previousNote ? normalizeTagsArray(previousNote.tags) : [];
+  const afterTags = normalizeTagsArray(currentNote.tags);
+  const addedTags = afterTags.filter((tag) => !beforeTags.includes(tag));
+  const removedTags = beforeTags.filter((tag) => !afterTags.includes(tag));
+  output.push(`  tags: ${afterTags.length > 0 ? afterTags.join(", ") : "(none)"}`);
+  if (addedTags.length > 0) {
+    output.push(`+ tags added: ${addedTags.join(", ")}`);
+  }
+  if (removedTags.length > 0) {
+    output.push(`- tags removed: ${removedTags.join(", ")}`);
+  }
+
   const addedAttachments = afterAttachments.filter((name) => !beforeAttachments.includes(name));
   const removedAttachments = beforeAttachments.filter((name) => !afterAttachments.includes(name));
   output.push(`  attachments: ${afterAttachments.length}`);
@@ -2431,16 +2504,88 @@ function renderMarkdown(markdown) {
   return html.join("\n");
 }
 
+function parseSearchQuery(rawQuery) {
+  const tokens = String(rawQuery || "")
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+
+  const result = {
+    terms: [],
+    tags: [],
+    pinnedOnly: false,
+    updatedWithinDays: null,
+  };
+
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    if (lower === "is:pinned" || lower === "pinned:true") {
+      result.pinnedOnly = true;
+      continue;
+    }
+    if (lower.startsWith("tag:")) {
+      const tag = normalizeTagValue(lower.slice(4));
+      if (tag) {
+        result.tags.push(tag);
+      }
+      continue;
+    }
+    const updatedMatch = lower.match(/^updated:(\d+)d$/);
+    if (updatedMatch) {
+      const days = Number.parseInt(updatedMatch[1], 10);
+      if (Number.isInteger(days) && days >= 0) {
+        result.updatedWithinDays = days;
+      }
+      continue;
+    }
+    result.terms.push(lower);
+  }
+
+  return result;
+}
+
+function noteMatchesSearchQuery(note, parsedQuery) {
+  if (parsedQuery.pinnedOnly && !note.pinned) {
+    return false;
+  }
+
+  if (parsedQuery.tags.length > 0) {
+    const noteTags = new Set(normalizeTagsArray(note.tags));
+    for (const tag of parsedQuery.tags) {
+      if (!noteTags.has(tag)) {
+        return false;
+      }
+    }
+  }
+
+  if (parsedQuery.updatedWithinDays !== null) {
+    const maxAgeMs = parsedQuery.updatedWithinDays * 24 * 60 * 60 * 1000;
+    const ageMs = Date.now() - noteUpdatedAtMs(note);
+    if (ageMs > maxAgeMs) {
+      return false;
+    }
+  }
+
+  if (parsedQuery.terms.length === 0) {
+    return true;
+  }
+
+  const haystack = `${note.title}\n${note.content}\n${normalizeTagsArray(note.tags).join(" ")}`.toLowerCase();
+  return parsedQuery.terms.every((term) => haystack.includes(term));
+}
+
+function compareNotesForList(left, right) {
+  if (Boolean(left.pinned) !== Boolean(right.pinned)) {
+    return left.pinned ? -1 : 1;
+  }
+  return noteUpdatedAtMs(right) - noteUpdatedAtMs(left);
+}
+
 function renderNoteList() {
   elements.noteList.innerHTML = "";
-  const activeNotes = getActiveNotes();
-  const query = state.searchQuery.trim().toLowerCase();
-  const filtered = query
-    ? activeNotes.filter((note) => {
-        const haystack = `${note.title}\n${note.content}`.toLowerCase();
-        return haystack.includes(query);
-      })
-    : activeNotes;
+  const activeNotes = getActiveNotes().slice().sort(compareNotesForList);
+  const parsedQuery = parseSearchQuery(state.searchQuery);
+  const filtered = activeNotes.filter((note) => noteMatchesSearchQuery(note, parsedQuery));
 
   for (const note of filtered) {
     const item = document.createElement("li");
@@ -2456,14 +2601,20 @@ function renderNoteList() {
     const meta = document.createElement("span");
     meta.className = "note-meta";
     const attachmentCount = Array.isArray(note.attachments) ? note.attachments.length : 0;
+    const pinText = note.pinned ? "Pinned · " : "";
     const attachmentText =
       attachmentCount > 0
         ? ` · ${attachmentCount} attachment${attachmentCount === 1 ? "" : "s"}`
         : "";
-    meta.textContent = `${formatDate(note.updatedAt)}${attachmentText}`;
+    meta.textContent = `${pinText}${formatDate(note.updatedAt)}${attachmentText}`;
 
-    button.appendChild(title);
-    button.appendChild(meta);
+    const tags = normalizeTagsArray(note.tags);
+    const tagsLine = document.createElement("span");
+    tagsLine.className = "note-tags";
+    tagsLine.textContent =
+      tags.length > 0 ? `#${tags.join(" #")}` : "No tags";
+
+    button.append(title, meta, tagsLine);
     item.appendChild(button);
     elements.noteList.appendChild(item);
   }
@@ -2473,11 +2624,13 @@ function renderEditor() {
   const note = getDisplayedEditorNote();
   if (!note) {
     elements.noteTitleInput.value = "";
+    elements.noteTagsInput.value = "";
     elements.noteContentInput.value = "";
     elements.previewOutput.innerHTML = "";
     return;
   }
   elements.noteTitleInput.value = note.title;
+  elements.noteTagsInput.value = normalizeTagsArray(note.tags).join(", ");
   elements.noteContentInput.value = note.content;
   elements.previewOutput.innerHTML = renderMarkdown(note.content);
 }
@@ -2696,6 +2849,7 @@ function render() {
   elements.searchInput.value = state.searchQuery;
   elements.searchInput.disabled = locked;
   elements.noteTitleInput.disabled = locked || timeTravelActive;
+  elements.noteTagsInput.disabled = locked || timeTravelActive;
   elements.noteContentInput.disabled = locked || timeTravelActive;
   elements.attachFilesBtn.disabled = locked || timeTravelActive;
   elements.attachFilesInput.disabled = locked || timeTravelActive;
@@ -2713,6 +2867,7 @@ function render() {
   if (locked) {
     elements.noteList.innerHTML = "";
     elements.noteTitleInput.value = "";
+    elements.noteTagsInput.value = "";
     elements.noteContentInput.value = "";
     elements.previewOutput.innerHTML = "<p class=\"muted\">Locked.</p>";
     elements.attachmentsList.innerHTML = "";
@@ -2726,6 +2881,11 @@ function render() {
   renderCryptoState();
   renderSyncState();
   const deletedCount = state.notes.filter((note) => note.deleted).length;
+  const selectedNote = getSelectedNote();
+  const selectedPinned = Boolean(selectedNote && selectedNote.pinned);
+  elements.togglePinBtn.disabled = locked || timeTravelActive || !selectedNote;
+  elements.togglePinBtn.textContent = selectedPinned ? "Unpin" : "Pin";
+  elements.togglePinBtn.setAttribute("data-pinned", selectedPinned ? "true" : "false");
   elements.openHistoryBtn.disabled = locked || !getSelectedNote();
   elements.openDeletedNotesBtn.disabled = locked || deletedCount <= 0;
   elements.deleteNoteBtn.disabled =
@@ -3158,6 +3318,10 @@ function wireEvents() {
     createNote();
   });
 
+  elements.togglePinBtn.addEventListener("click", () => {
+    togglePinForSelectedNote();
+  });
+
   elements.deleteNoteBtn.addEventListener("click", () => {
     if (!isUnlocked()) {
       return;
@@ -3217,6 +3381,13 @@ function wireEvents() {
   });
 
   elements.noteTitleInput.addEventListener("input", () => {
+    if (!isUnlocked()) {
+      return;
+    }
+    saveEditorChanges();
+  });
+
+  elements.noteTagsInput.addEventListener("input", () => {
     if (!isUnlocked()) {
       return;
     }

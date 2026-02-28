@@ -130,6 +130,11 @@ button:disabled {
   border-color: color-mix(in srgb, var(--accent) 75%, black);
 }
 
+#toggle-pin-btn[data-pinned="true"] {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  border-color: var(--accent);
+}
+
 .layout {
   position: relative;
   display: grid;
@@ -201,6 +206,13 @@ textarea {
   display: block;
   margin-top: 0.2rem;
   font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.note-tags {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.74rem;
   color: var(--muted);
 }
 
