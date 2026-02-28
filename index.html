@@ -23,6 +23,7 @@
           Hide Sidebar
         </button>
         <button id="new-note-btn" type="button">New Note</button>
+        <button id="toggle-pin-btn" type="button">Pin</button>
         <button id="delete-note-btn" type="button">Delete</button>
         <button id="open-history-btn" type="button">History</button>
         <button id="open-deleted-notes-btn" type="button">Deleted</button>
@@ -43,6 +44,8 @@
       <section class="panel editor-panel">
         <label class="field-label" for="note-title-input">Title</label>
         <input id="note-title-input" type="text" placeholder="Untitled" />
+        <label class="field-label" for="note-tags-input">Tags</label>
+        <input id="note-tags-input" type="text" placeholder="work, ideas, travel" />
         <label class="field-label" for="note-content-input">Markdown</label>
         <textarea
           id="note-content-input"
@@ -193,6 +196,8 @@
         />
         <button id="sync-now-btn" type="button" disabled>Sync Now</button>
         <p id="sync-status" class="muted">Sync not configured.</p>
+        <p id="sync-queue-status" class="muted">No queued background sync.</p>
+        <ul id="sync-events-list" class="sync-events-list"></ul>
         <div id="sync-conflict-wrap" class="hidden">
           <p id="sync-conflict-text" class="muted error">Conflict detected.</p>
           <div class="inline-actions">
