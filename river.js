@@ -111,18 +111,21 @@
   }
 
   // Removes whole lines from the top until the text fits the box. Wrapping is greedy,
-  // so the lines left behind keep their breaks.
-  function fitToBox(offset) {
+  // so the lines left behind keep their breaks. Returns how far the text moved up.
+  function fitToBox() {
+    let lifted = 0;
     for (;;) {
       const excess = words.offsetHeight - sheet.clientHeight;
-      if (excess <= 0) return;
+      if (excess <= 0) return lifted;
 
       const all = spans();
-      if (!all.length) return;
+      if (!all.length) return lifted;
       const cut = cutPoint(all, excess);
-      if (cut < 1) return; // A box smaller than one line: nothing sensible to remove.
+      if (cut < 1) return lifted; // A box smaller than one line: nothing sensible to remove.
 
       const leaving = all.slice(0, cut);
+      const survivor = all[cut];
+      const survivorTop = survivor.getBoundingClientRect().top;
       const origin = ghosts.getBoundingClientRect();
       const lineHeight = parseFloat(getComputedStyle(words).lineHeight);
       const firstTop = all[0].getBoundingClientRect().top;
@@ -133,10 +136,11 @@
         .map((span) => ({ text: span.textContent, rect: span.getClientRects()[0] }))
         .filter(({ rect }) => rect.top - firstTop < WASH_LINES * lineHeight);
       washing.forEach(({ text, rect }, order) => {
-        wash(text, rect.left - origin.left, rect.top - origin.top + offset, lineHeight, order);
+        wash(text, rect.left - origin.left, rect.top - origin.top, lineHeight, order);
       });
       leaving.forEach((span) => span.remove());
       setText(spans().map((span) => span.textContent).join(''));
+      lifted += survivorTop - survivor.getBoundingClientRect().top;
     }
   }
 
@@ -148,26 +152,22 @@
       if (tidy !== input.value) setText(tidy);
     }
 
-    // Any shift in the text below becomes a glide from where it was on screen.
-    const anchor = spans().at(-1);
-    const before = anchor?.getBoundingClientRect().top;
-    const offset = glide ? new DOMMatrixReadOnly(getComputedStyle(words).transform).m42 : 0;
-    glide?.cancel();
-    glide = null;
-
     render();
-    if (!composing) fitToBox(offset);
+    const lifted = composing ? 0 : fitToBox();
 
-    if (anchor?.isConnected && !reducedMotion.matches) {
-      const distance = before - anchor.getBoundingClientRect().top;
-      if (Math.abs(distance) > 0.5) {
-        const animation = words.animate(
-          { transform: [`translateY(${distance}px)`, 'translateY(0)'] },
-          { duration: GLIDE_MS, easing: GLIDE_EASING },
-        );
-        glide = animation;
-        animation.finished.then(() => { if (glide === animation) glide = null; }, () => {});
-      }
+    // Only removed lines move the text. A word wrapping onto the next line leaves
+    // everything else where it is, and any glide under way simply carries on.
+    if (lifted > 0.5 && !reducedMotion.matches) {
+      const offset = glide ? new DOMMatrixReadOnly(getComputedStyle(words).transform).m42 : 0;
+      glide?.cancel();
+      const animation = words.animate(
+        { transform: [`translateY(${offset + lifted}px)`, 'translateY(0)'] },
+        // Backwards fill: the browser may date the start a frame ahead, and for that
+        // frame the text would otherwise drop back to its resting place.
+        { duration: GLIDE_MS, easing: GLIDE_EASING, fill: 'backwards' },
+      );
+      glide = animation;
+      animation.finished.then(() => { if (glide === animation) glide = null; }, () => {});
     }
   }
 
