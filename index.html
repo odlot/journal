@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- The browser refuses every network request this page might try to make,
+       so typed words have no way out. Only the app's own files may load. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0e3f47">
+  <title>River</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="water" aria-hidden="true"></canvas>
+
+  <main id="page">
+    <div id="sheet">
+      <div id="ghosts" aria-hidden="true"></div>
+      <div id="words" aria-hidden="true"><span id="caret"></span></div>
+      <p id="hint" aria-hidden="true">
+        <span id="hint-start">Begin anywhere.</span>
+        <span id="hint-note">Nothing is saved. When the page fills, the oldest words drift away.</span>
+      </p>
+    </div>
+  </main>
+
+  <!-- The real input stays invisible on top of the page, so keyboards, dictation
+       and screen readers all work. Autocomplete and spellcheck stay off so the
+       browser doesn't remember the text or send it to a spelling service. -->
+  <textarea id="input"
+            aria-label="Write here. Nothing is saved, and the oldest words vanish when the page fills."
+            autocomplete="off" autocorrect="off" autocapitalize="sentences"
+            spellcheck="false" data-gramm="false" data-1p-ignore rows="1"></textarea>
+
+  <script src="water.js" defer></script>
+  <script src="river.js" defer></script>
+</body>
+</html>
