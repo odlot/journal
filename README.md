@@ -2,7 +2,7 @@
 
 A place to write and let go. You type, and nothing is ever stored. The text box
 fills the screen, so the page is as big as your device allows: when the words
-outgrow it, the oldest line washes away.
+outgrow it, the oldest words wash away, one at a time.
 
 ## Run it
 
