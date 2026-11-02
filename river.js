@@ -46,7 +46,6 @@
       }
       const fresh = document.createElement('span');
       fresh.textContent = token;
-      if (token.trim()) fresh.className = 'fresh';
       words.insertBefore(fresh, caret);
     });
     existing.slice(tokens.length).forEach((span) => span.remove());
