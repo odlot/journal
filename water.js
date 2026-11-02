@@ -1,6 +1,6 @@
-// The moving background: milky turquoise glacial water, drawn as layered noise
-// stretched along the current. It stays low-resolution and low-framerate, because
-// soft water doesn't need detail and phones shouldn't get warm.
+// The moving background: a quiet glacial turquoise, drawn as layered noise stretched
+// along the current. It stays low-resolution and low-framerate, because soft water
+// doesn't need detail and phones shouldn't get warm.
 (() => {
   'use strict';
 
@@ -37,7 +37,7 @@
     float fbm(vec2 p) {
       float value = 0.0;
       float amplitude = 0.5;
-      for (int i = 0; i < 4; i++) {
+      for (int i = 0; i < 3; i++) {
         value += amplitude * noise(p);
         p = p * 2.03 + vec2(17.0, 9.0);
         amplitude *= 0.5;
@@ -49,24 +49,18 @@
       vec2 uv = gl_FragCoord.xy / resolution;
       vec2 p = vec2(uv.x * resolution.x / resolution.y, uv.y);
 
-      // Long streaks that slide with the current. The warp makes them eddy.
-      vec2 flow = vec2(p.x * 1.2 - time * 0.06, p.y * 8.0);
-      float warp = fbm(flow * 0.6 + vec2(time * 0.014, 3.0));
-      float streaks = fbm(flow + vec2(warp * 1.7, warp * 0.7));
+      // Broad, slow currents in a narrow range of one colour: it should read as
+      // a calm surface you notice only if you look for it.
+      vec2 flow = vec2(p.x * 0.7 - time * 0.02, p.y * 3.0);
+      float warp = fbm(flow * 0.5 + vec2(time * 0.006, 3.0));
+      float current = fbm(flow + vec2(warp * 0.9, warp * 0.4));
 
-      vec3 deep = vec3(0.039, 0.290, 0.325);
-      vec3 glacier = vec3(0.067, 0.435, 0.463);
-      vec3 milk = vec3(0.420, 0.790, 0.760);
+      vec3 deep = vec3(0.075, 0.340, 0.370);
+      vec3 glacier = vec3(0.102, 0.412, 0.440);
+      vec3 color = mix(deep, glacier, smoothstep(0.25, 0.65, current));
 
-      vec3 color = mix(deep, glacier, smoothstep(0.26, 0.62, streaks));
-      color = mix(color, milk, smoothstep(0.56, 0.84, streaks) * 0.24);
-
-      // Shaded banks at the top and bottom, like water under spruce.
-      float bank = smoothstep(0.0, 0.3, uv.y) * smoothstep(1.0, 0.72, uv.y);
-      color *= mix(0.72, 1.0, bank);
-
-      // A little grain stops the dark gradients from banding.
-      color += (hash(gl_FragCoord.xy + fract(time)) - 0.5) / 128.0;
+      // A little fixed grain stops such a soft gradient from banding.
+      color += (hash(gl_FragCoord.xy) - 0.5) / 128.0;
 
       gl_FragColor = vec4(color, 1.0);
     }`;
