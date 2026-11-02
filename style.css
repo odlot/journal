@@ -110,13 +110,6 @@ body {
   will-change: transform, opacity;
 }
 
-.fresh { animation: surface 900ms ease-out; }
-
-@keyframes surface {
-  from { opacity: 0.25; filter: blur(1.5px); }
-  to { opacity: 1; filter: blur(0); }
-}
-
 #caret {
   display: inline-block;
   width: 2px;
@@ -180,6 +173,5 @@ body.flowing #hint { opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fresh { animation: none; }
   #caret { animation: none; }
 }
