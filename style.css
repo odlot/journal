@@ -1,0 +1,168 @@
+:root {
+  --deep: #0e3f47;
+  --glacier: #1b6a70;
+  --text: #f1f8f5;
+  --mist: #bfe0da;
+  --line: 1.6;
+  --size: 18px; /* Replaced by river.js to fit the 300-word page to the screen. */
+  --top: calc(env(safe-area-inset-top) + clamp(2.5rem, 12vh, 7rem));
+  --bottom: calc(env(safe-area-inset-bottom) + clamp(1rem, 10vh, 5rem));
+  --gutter: clamp(1.25rem, 5vw, 3rem);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Flex row that centres the page, with the gutters as the only fixed sizes: the
+   column fills a phone and stops growing at a comfortable width on a PC.
+   --viewport follows the on-screen keyboard, see river.js. */
+body {
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--viewport, 100dvh);
+  display: flex;
+  justify-content: center;
+  padding-inline: max(var(--gutter), env(safe-area-inset-left)) max(var(--gutter), env(safe-area-inset-right));
+  /* Shown when WebGL isn't available, and behind the water as it loads. */
+  background: linear-gradient(115deg, var(--deep), var(--glacier) 55%, var(--deep));
+  color: var(--text);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Noto Serif", Georgia, serif;
+}
+
+#water {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Flex column: top space, the sheet taking all remaining height, bottom space.
+   If 300 words don't fit the screen, older lines fade out at the top. */
+#page {
+  position: relative;
+  flex: 0 1 46rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-block: var(--top) var(--bottom);
+  font-size: var(--size);
+  line-height: var(--line);
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--top));
+  mask-image: linear-gradient(transparent, #000 var(--top));
+}
+
+/* The visible writing area. river.js measures its size. */
+#sheet {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+#words, #ghosts {
+  position: absolute;
+  inset: 0 0 auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-shadow: 0 1px 14px rgb(6 40 46 / 0.55);
+}
+
+#words { will-change: transform; }
+
+#ghosts { bottom: 0; pointer-events: none; }
+
+/* An empty gap where a word used to be. Its width is set in river.js. */
+.gone:empty { display: inline-block; height: 0; }
+
+.ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: pre;
+  will-change: transform, filter;
+}
+
+.ghost span {
+  display: inline-block;
+  white-space: pre;
+  will-change: transform, opacity;
+}
+
+.fresh { animation: surface 900ms ease-out; }
+
+@keyframes surface {
+  from { opacity: 0.25; filter: blur(1.5px); }
+  to { opacity: 1; filter: blur(0); }
+}
+
+#caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.15em;
+  margin-left: 1px;
+  vertical-align: -0.2em;
+  border-radius: 1px;
+  background: var(--mist);
+  animation: breathe 3s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 0.25; }
+}
+
+#hint {
+  position: absolute;
+  inset: 0 0 auto;
+  margin: 0;
+  pointer-events: none;
+  transition: opacity 1400ms ease;
+}
+
+#hint-start {
+  display: block;
+  margin-left: 6px;
+  color: var(--mist);
+  font-style: italic;
+}
+
+#hint-note {
+  display: block;
+  margin: 0.75rem 0 0 6px;
+  color: var(--mist);
+  font-size: 0.8em;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+body.flowing #hint { opacity: 0; }
+
+/* Invisible, but it fills the screen so a tap anywhere brings up the keyboard.
+   16px or more stops iOS Safari zooming in when it gains focus. */
+#input {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow: hidden;
+  opacity: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px;
+  cursor: text;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fresh { animation: none; }
+  #caret { animation: none; }
+}
