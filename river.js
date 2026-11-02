@@ -1,8 +1,8 @@
 // The writing surface. The invisible <textarea> is the only source of truth, and
 // #words mirrors it one span per word. #sheet is a flex item, so its size follows
 // the screen, and that size is the page: when the words outgrow it, the oldest
-// lines are deleted from the textarea for good, a short-lived copy of them washes
-// away on screen, and the text glides up.
+// words are deleted from the textarea for good, a short-lived copy of them washes
+// away on screen, and the text rewraps.
 // Nothing is written to storage, cookies or the network.
 (() => {
   'use strict';
@@ -46,7 +46,6 @@
       }
       const fresh = document.createElement('span');
       fresh.textContent = token;
-      if (token.trim()) fresh.className = 'fresh';
       words.insertBefore(fresh, caret);
     });
     existing.slice(tokens.length).forEach((span) => span.remove());
@@ -96,52 +95,60 @@
     Promise.allSettled(finished).then(() => ghost.remove());
   }
 
-  // The first word on a line far enough down that removing everything before it
-  // makes the text fit. Failing that, the first word below the top line.
-  function cutPoint(all, excess) {
+  // The next word to keep. Normally that's the second word, so the oldest word leaves
+  // alone. Text over by more than a line, like a big paste, skips ahead to save work.
+  function cutPoint(all, excess, lineHeight) {
     const firstTop = all[0].offsetTop;
-    let lower = -1;
+    let cut = -1;
     for (let index = 1; index < all.length; index++) {
       if (isSpace(all[index])) continue;
-      const below = all[index].offsetTop - firstTop;
-      if (below >= excess) return index;
-      if (below > 0 && lower < 0) lower = index;
+      cut = index;
+      if (all[index].offsetTop - firstTop >= excess - lineHeight) break;
     }
-    return lower;
+    return cut;
   }
 
-  // Removes whole lines from the top until the text fits the box. Wrapping is greedy,
-  // so the lines left behind keep their breaks. Returns how far the text moved up.
+  // Removes the oldest words until the text fits the box. The words left behind
+  // rewrap to fill the space. Returns how far the text moved up.
   function fitToBox() {
+    if (words.offsetHeight <= sheet.clientHeight) return 0;
+
+    const origin = ghosts.getBoundingClientRect();
+    const lineHeight = parseFloat(getComputedStyle(words).lineHeight);
+    // Each removal moves the words after it, so note where they all stand first.
+    const places = new Map(spans().map((span) => [span, span.getClientRects()[0]]));
+    const firstTop = spans()[0]?.getBoundingClientRect().top;
+    const leaving = [];
     let lifted = 0;
+
     for (;;) {
       const excess = words.offsetHeight - sheet.clientHeight;
-      if (excess <= 0) return lifted;
+      if (excess <= 0) break;
 
       const all = spans();
-      if (!all.length) return lifted;
-      const cut = cutPoint(all, excess);
-      if (cut < 1) return lifted; // A box smaller than one line: nothing sensible to remove.
+      if (!all.length) break;
+      const cut = cutPoint(all, excess, lineHeight);
+      if (cut < 1) break; // One word too big for the box: nothing sensible to remove.
 
-      const leaving = all.slice(0, cut);
       const survivor = all[cut];
       const survivorTop = survivor.getBoundingClientRect().top;
-      const origin = ghosts.getBoundingClientRect();
-      const lineHeight = parseFloat(getComputedStyle(words).lineHeight);
-      const firstTop = all[0].getBoundingClientRect().top;
-      // Only the top lines wash away. After a big paste the rest would otherwise
-      // drift behind the words that remain, so they simply vanish.
-      const washing = leaving
-        .filter((span) => !isSpace(span))
-        .map((span) => ({ text: span.textContent, rect: span.getClientRects()[0] }))
-        .filter(({ rect }) => rect.top - firstTop < WASH_LINES * lineHeight);
-      washing.forEach(({ text, rect }, order) => {
-        wash(text, rect.left - origin.left, rect.top - origin.top, lineHeight, order);
+      all.slice(0, cut).forEach((span) => {
+        if (!isSpace(span)) leaving.push(span);
+        span.remove();
       });
-      leaving.forEach((span) => span.remove());
-      setText(spans().map((span) => span.textContent).join(''));
       lifted += survivorTop - survivor.getBoundingClientRect().top;
     }
+
+    // Only the top lines wash away. After a big paste the rest would otherwise
+    // drift behind the words that remain, so they simply vanish.
+    leaving
+      .filter((span) => places.get(span).top - firstTop < WASH_LINES * lineHeight)
+      .forEach((span, order) => {
+        const rect = places.get(span);
+        wash(span.textContent, rect.left - origin.left, rect.top - origin.top, lineHeight, order);
+      });
+    setText(spans().map((span) => span.textContent).join(''));
+    return lifted;
   }
 
   function update() {
@@ -156,8 +163,9 @@
     const lifted = composing ? 0 : fitToBox();
 
     // Only removed lines move the text. A word wrapping onto the next line leaves
-    // everything else where it is, and any glide under way simply carries on.
-    if (lifted > 0.5 && !reducedMotion.matches) {
+    // everything else where it is, and any glide under way simply carries on. A lift
+    // bigger than the box, like a big paste, was never on screen, so nothing glides.
+    if (lifted > 0.5 && lifted <= sheet.clientHeight && !reducedMotion.matches) {
       const offset = glide ? new DOMMatrixReadOnly(getComputedStyle(words).transform).m42 : 0;
       glide?.cancel();
       const animation = words.animate(

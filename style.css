@@ -1,6 +1,6 @@
 :root {
-  --deep: #0e3f47;
-  --glacier: #1b6a70;
+  --deep: #13575e;
+  --glacier: #1a6970;
   --text: #f1f8f5;
   --mist: #bfe0da;
   --line: 1.7;
@@ -8,6 +8,9 @@
   --top: calc(env(safe-area-inset-top) + clamp(2.5rem, 12vh, 7rem));
   --bottom: calc(env(safe-area-inset-bottom) + clamp(1rem, 10vh, 5rem));
   --gutter: clamp(1.25rem, 5vw, 3rem);
+  /* How far the visible box reaches past the text. Stays smaller than the gutter,
+     --top and --bottom at their minimums, so the box always fits the screen. */
+  --box-inset: clamp(0.75rem, 2.5vmin, 1.5rem);
 }
 
 * { box-sizing: border-box; }
@@ -43,9 +46,10 @@ body {
 }
 
 /* Flex column: top space, the sheet taking all remaining height, bottom space.
-   The fade at the top softens words as they wash away. A mask also clips at the
-   element's edges, so the page extends past the text on both sides, cancelled out
-   by negative margins, to leave drifting words room. */
+   The fade at the top softens words as they wash away, and ends above the visible
+   box so its top edge stays crisp. A mask also clips at the element's edges, so the
+   page extends past the text on both sides, cancelled out by negative margins, to
+   leave drifting words room. */
 #page {
   --drift: 3rem;
   position: relative;
@@ -57,8 +61,8 @@ body {
   padding: var(--top) var(--drift) var(--bottom);
   font-size: var(--size);
   line-height: var(--line);
-  -webkit-mask-image: linear-gradient(transparent, #000 var(--top));
-  mask-image: linear-gradient(transparent, #000 var(--top));
+  -webkit-mask-image: linear-gradient(transparent, #000 calc(var(--top) - var(--box-inset)));
+  mask-image: linear-gradient(transparent, #000 calc(var(--top) - var(--box-inset)));
 }
 
 /* The page limit: words that outgrow this box wash away, see river.js. */
@@ -66,6 +70,18 @@ body {
   position: relative;
   flex: 1;
   min-height: 0;
+}
+
+/* The box you can see. It's drawn outside the sheet rather than as padding, so the
+   sheet's size, which river.js measures as the page, is exactly the text area. */
+#sheet::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--box-inset));
+  border: 1px solid rgb(191 224 218 / 0.6);
+  border-radius: 0.75rem;
+  background: rgb(6 40 46 / 0.5);
+  box-shadow: 0 0.5rem 2rem rgb(6 40 46 / 0.35);
 }
 
 #words, #ghosts {
@@ -92,13 +108,6 @@ body {
   display: inline-block;
   white-space: pre;
   will-change: transform, opacity;
-}
-
-.fresh { animation: surface 900ms ease-out; }
-
-@keyframes surface {
-  from { opacity: 0.25; filter: blur(1.5px); }
-  to { opacity: 1; filter: blur(0); }
 }
 
 #caret {
@@ -164,6 +173,5 @@ body.flowing #hint { opacity: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fresh { animation: none; }
   #caret { animation: none; }
 }
