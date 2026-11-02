@@ -1,20 +1,22 @@
-// The writing surface. The invisible <textarea> holds the page: never more than
-// 300 words. #words mirrors it one span per word. When word 301 arrives, the oldest
-// word is deleted from the textarea for good, a short-lived copy of it washes away
-// on screen, and an empty gap holds its place so the other lines don't rewrap. Once
-// a whole line is empty it's removed and the text glides up.
+// The writing surface. The invisible <textarea> is the only source of truth, and
+// #words mirrors it one span per word. #sheet is a flex item, so its size follows
+// the screen, and that size is the page: when the words outgrow it, the oldest
+// lines are deleted from the textarea for good, a short-lived copy of them washes
+// away on screen, and the text glides up.
 // Nothing is written to storage, cookies or the network.
 (() => {
   'use strict';
 
+  const sheet = document.getElementById('sheet');
   const input = document.getElementById('input');
   const words = document.getElementById('words');
   const ghosts = document.getElementById('ghosts');
   const caret = document.getElementById('caret');
 
-  const PAGE_WORDS = 300;
-  const MAX_GHOST_WORDS = 120; // At most this many words wash away on screen at once.
-  const GLIDE_MS = 1100;
+  const MAX_CHARS = 8000; // More than the box holds even on a very large screen.
+  const WASH_LINES = 2; // At most this many lines wash away in one go.
+  const MAX_GHOST_WORDS = 60; // At most this many words wash away on screen at once.
+  const GLIDE_MS = 1500;
   const GLIDE_EASING = 'cubic-bezier(.3,.1,.5,1)';
   const WASH_MS = 2600;
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
@@ -26,9 +28,7 @@
   // a phone-width line.
   const tokenize = (text) => text.match(/\s+|\S{1,24}/g) ?? [];
   const isSpace = (span) => !span.textContent.trim();
-  const isGone = (span) => span.classList.contains('gone');
-  const allSpans = () => [...words.children].filter((node) => node !== caret);
-  const liveSpans = () => allSpans().filter((span) => !isGone(span));
+  const spans = () => [...words.children].filter((node) => node !== caret);
 
   function setText(text) {
     input.value = text;
@@ -37,7 +37,7 @@
 
   function render() {
     const tokens = tokenize(input.value);
-    const existing = liveSpans();
+    const existing = spans();
     tokens.forEach((token, index) => {
       const span = existing[index];
       if (span) {
@@ -50,12 +50,12 @@
       words.insertBefore(fresh, caret);
     });
     existing.slice(tokens.length).forEach((span) => span.remove());
-    if (!tokens.length) allSpans().forEach((span) => span.remove()); // No gaps left to hold.
     document.body.classList.toggle('flowing', tokens.length > 0);
   }
 
-  // Copies a vanishing word to where it stands now. Letters leave one by one, left
-  // to right, carried downstream while the word blurs.
+  // Copies a vanishing word to where it stands now. It lifts in step with the glide
+  // so the next line never runs into it, while its letters leave one by one, left
+  // to right, carried downstream.
   function wash(text, x, y, lineHeight, order) {
     if (ghosts.children.length >= MAX_GHOST_WORDS) return;
     const delay = order * 70;
@@ -78,8 +78,8 @@
     } else {
       finished.push(ghost.animate([
         { transform: `translate(${x}px, ${y}px)`, filter: 'blur(0)' },
-        { transform: `translate(${x + 26}px, ${y - lineHeight * 0.5}px)`, filter: 'blur(5px)' },
-      ], { duration: WASH_MS, delay, easing: GLIDE_EASING, fill: 'both' }).finished);
+        { transform: `translate(${x + 26}px, ${y - lineHeight}px)`, filter: 'blur(5px)' },
+      ], { duration: GLIDE_MS, easing: GLIDE_EASING, fill: 'both' }).finished);
 
       letters.forEach((letter, index) => {
         finished.push(letter.animate([
@@ -96,87 +96,67 @@
     Promise.allSettled(finished).then(() => ghost.remove());
   }
 
-  // Text far past the page is dropped before it's ever drawn, so a huge paste can't
-  // stall the page. Only the words that can still wash away on screen are kept.
-  function dropFarOverflow(text) {
-    const tokens = tokenize(text);
-    let kept = 0;
-    let start = tokens.length;
-    while (start > 0 && kept < PAGE_WORDS + MAX_GHOST_WORDS) {
-      start--;
-      if (tokens[start].trim()) kept++;
+  // The first word on a line far enough down that removing everything before it
+  // makes the text fit. Failing that, the first word below the top line.
+  function cutPoint(all, excess) {
+    const firstTop = all[0].offsetTop;
+    let lower = -1;
+    for (let index = 1; index < all.length; index++) {
+      if (isSpace(all[index])) continue;
+      const below = all[index].offsetTop - firstTop;
+      if (below >= excess) return index;
+      if (below > 0 && lower < 0) lower = index;
     }
-    return start > 0 ? tokens.slice(start).join('') : text;
+    return lower;
   }
 
-  // Removes the oldest words until the page holds 300 again. All measuring happens
-  // before anything changes, so the browser only has to lay the page out once.
-  function trimToPage(offset) {
-    const live = liveSpans();
-    const excess = live.filter((span) => !isSpace(span)).length - PAGE_WORDS;
-    if (excess <= 0) return;
+  // Removes whole lines from the top until the text fits the box. Wrapping is greedy,
+  // so the lines left behind keep their breaks.
+  function fitToBox(offset) {
+    for (;;) {
+      const excess = words.offsetHeight - sheet.clientHeight;
+      if (excess <= 0) return;
 
-    const leaving = [];
-    let index = 0;
-    for (let found = 0; found < excess; index++) {
-      if (!isSpace(live[index])) found++;
-      leaving.push(live[index]);
+      const all = spans();
+      if (!all.length) return;
+      const cut = cutPoint(all, excess);
+      if (cut < 1) return; // A box smaller than one line: nothing sensible to remove.
+
+      const leaving = all.slice(0, cut);
+      const origin = ghosts.getBoundingClientRect();
+      const lineHeight = parseFloat(getComputedStyle(words).lineHeight);
+      const firstTop = all[0].getBoundingClientRect().top;
+      // Only the top lines wash away. After a big paste the rest would otherwise
+      // drift behind the words that remain, so they simply vanish.
+      const washing = leaving
+        .filter((span) => !isSpace(span))
+        .map((span) => ({ text: span.textContent, rect: span.getClientRects()[0] }))
+        .filter(({ rect }) => rect.top - firstTop < WASH_LINES * lineHeight);
+      washing.forEach(({ text, rect }, order) => {
+        wash(text, rect.left - origin.left, rect.top - origin.top + offset, lineHeight, order);
+      });
+      leaving.forEach((span) => span.remove());
+      setText(spans().map((span) => span.textContent).join(''));
     }
-    // The whitespace after a vanished word goes too, but keeps its place.
-    if (isSpace(live[index])) leaving.push(live[index]);
-
-    const origin = ghosts.getBoundingClientRect();
-    const lineHeight = parseFloat(getComputedStyle(words).lineHeight);
-    const leavingWords = leaving.filter((span) => !isSpace(span)).map((span) => {
-      const rect = span.getBoundingClientRect();
-      return { span, text: span.textContent, rect };
-    });
-
-    leaving.forEach((span) => { span.className = 'gone'; });
-    leavingWords.forEach(({ span, text, rect }, order) => {
-      wash(text, rect.left - origin.left, rect.top - origin.top + offset, lineHeight, order);
-      span.textContent = '';
-      span.style.width = `${rect.width}px`; // Holds the word's width, but none of its text.
-    });
-    setText(liveSpans().map((span) => span.textContent).join(''));
-  }
-
-  // Lines holding only gaps are finished. Removing them leaves the rest unchanged.
-  function dropEmptyLines() {
-    const first = liveSpans()[0];
-    if (!first) return;
-    allSpans().some((span) => {
-      if (span === first) return true;
-      if (span.offsetTop < first.offsetTop) span.remove();
-      return false;
-    });
-  }
-
-  // When 300 words don't fit the screen, older lines sit above the top edge and
-  // the newest words stay in view.
-  function followCaret() {
-    const hidden = Math.max(0, words.offsetHeight - ghosts.clientHeight);
-    words.style.marginTop = `${-hidden}px`;
   }
 
   function update() {
     if (!composing) {
       // Rivers don't pool: no leading space, and at most one blank line in a row.
-      const tidy = dropFarOverflow(input.value).replace(/^\s+/, '').replace(/\n{3,}/g, '\n\n');
+      // Text far beyond what the box can hold is dropped before it's ever drawn.
+      const tidy = input.value.slice(-MAX_CHARS).replace(/^\s+/, '').replace(/\n{3,}/g, '\n\n');
       if (tidy !== input.value) setText(tidy);
     }
 
     // Any shift in the text below becomes a glide from where it was on screen.
-    const anchor = allSpans().at(-1);
+    const anchor = spans().at(-1);
     const before = anchor?.getBoundingClientRect().top;
     const offset = glide ? new DOMMatrixReadOnly(getComputedStyle(words).transform).m42 : 0;
     glide?.cancel();
     glide = null;
 
     render();
-    if (!composing) trimToPage(offset);
-    dropEmptyLines();
-    followCaret();
+    if (!composing) fitToBox(offset);
 
     if (anchor?.isConnected && !reducedMotion.matches) {
       const distance = before - anchor.getBoundingClientRect().top;
@@ -206,29 +186,12 @@
     }
   }
 
-  // Picks a text size so 300 average words fit the screen. Where that would be too
-  // small to read comfortably, as on phones, it keeps a comfortable size instead.
-  function fitText() {
-    const AREA_PER_CHAR = 0.77; // Average character width × line height, in font-size².
-    const PAGE_CHARS = 1900;
-    const fitted = Math.sqrt(words.clientWidth * ghosts.clientHeight / (AREA_PER_CHAR * PAGE_CHARS));
-    const size = fitted < 15 ? 18 : Math.min(fitted, 26);
-    document.documentElement.style.setProperty('--size', `${size}px`);
-  }
-
-  // On phones the keyboard covers the page without resizing it, so the page follows
-  // the part of the screen that's actually visible. Gaps are measured for the old
-  // layout, so they go, and the remaining words rewrap.
+  // On phones the keyboard covers the page without resizing it, so the body's height
+  // follows the part of the screen that's actually visible. Flexbox does the rest.
   function fitViewport() {
     const height = visualViewport?.height ?? innerHeight;
-    const width = innerWidth;
     document.documentElement.style.setProperty('--viewport', `${height}px`);
     scrollTo(0, 0);
-    if (width !== fitViewport.width) {
-      fitViewport.width = width;
-      fitText();
-    }
-    allSpans().filter(isGone).forEach((span) => span.remove());
     update();
   }
 

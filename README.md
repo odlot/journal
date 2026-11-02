@@ -1,7 +1,8 @@
 # River
 
-A place to write and let go. You type, and nothing is ever stored. The page holds
-300 words: once you pass that, the oldest word washes away for each new one.
+A place to write and let go. You type, and nothing is ever stored. The text box
+fills the screen, so the page is as big as your device allows: when the words
+outgrow it, the oldest line washes away.
 
 ## Run it
 
@@ -29,5 +30,5 @@ extensions or the OS can see, and third-party keyboards.
 
 - `index.html`: the page and its security policy
 - `style.css`: the flexbox layout, for phone and PC
-- `river.js`: writing, the 300-word limit and the vanishing effect
+- `river.js`: writing, the page limit and the vanishing effect
 - `water.js`: the moving glacial water background (WebGL)

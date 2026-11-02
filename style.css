@@ -3,8 +3,8 @@
   --glacier: #1b6a70;
   --text: #f1f8f5;
   --mist: #bfe0da;
-  --line: 1.6;
-  --size: 18px; /* Replaced by river.js to fit the 300-word page to the screen. */
+  --line: 1.7;
+  --size: clamp(1.15rem, 1rem + 0.6vw, 1.5rem);
   --top: calc(env(safe-area-inset-top) + clamp(2.5rem, 12vh, 7rem));
   --bottom: calc(env(safe-area-inset-bottom) + clamp(1rem, 10vh, 5rem));
   --gutter: clamp(1.25rem, 5vw, 3rem);
@@ -43,21 +43,25 @@ body {
 }
 
 /* Flex column: top space, the sheet taking all remaining height, bottom space.
-   If 300 words don't fit the screen, older lines fade out at the top. */
+   The fade at the top softens words as they wash away. A mask also clips at the
+   element's edges, so the page extends past the text on both sides, cancelled out
+   by negative margins, to leave drifting words room. */
 #page {
+  --drift: 3rem;
   position: relative;
-  flex: 0 1 46rem;
+  flex: 0 1 calc(42rem + 2 * var(--drift));
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding-block: var(--top) var(--bottom);
+  margin-inline: calc(-1 * var(--drift));
+  padding: var(--top) var(--drift) var(--bottom);
   font-size: var(--size);
   line-height: var(--line);
   -webkit-mask-image: linear-gradient(transparent, #000 var(--top));
   mask-image: linear-gradient(transparent, #000 var(--top));
 }
 
-/* The visible writing area. river.js measures its size. */
+/* The page limit: words that outgrow this box wash away, see river.js. */
 #sheet {
   position: relative;
   flex: 1;
@@ -75,9 +79,6 @@ body {
 #words { will-change: transform; }
 
 #ghosts { bottom: 0; pointer-events: none; }
-
-/* An empty gap where a word used to be. Its width is set in river.js. */
-.gone:empty { display: inline-block; height: 0; }
 
 .ghost {
   position: absolute;
